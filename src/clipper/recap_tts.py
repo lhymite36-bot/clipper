@@ -35,7 +35,7 @@ EDGE_VOICES = [
     "en-US-AvaNeural",
     "en-US-EmmaNeural",
 ]
-DEFAULT_VOICE = "en-US-AndrewNeural"
+DEFAULT_VOICE = "en-US-AriaNeural"
 GEMINI_TTS_MODELS = [
     "gemini-2.5-flash-preview-tts",
     "gemini-2.5-pro-preview-tts",
@@ -85,16 +85,17 @@ def synthesize(
     log = progress or (lambda *_a, **_k: None)
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    requested = (voice or "auto").strip().lower()
     voice = resolve_voice(voice)
     text = _prep_text(text)
     if not text.strip():
         raise ValueError("Nothing to narrate")
 
-    # Gemini TTS first when the requested voice is a Gemini name, or for auto
-    # when a free key is present. Any billing / 4xx / empty audio falls back.
-    want_gemini = voice in GEMINI_VOICES
+    # Gemini TTS only when the user picked a Gemini voice, or auto + a free key.
+    # An explicit edge-tts voice should stay that one narrator.
+    want_gemini = voice in GEMINI_VOICES or requested in {"auto", "default", ""}
     key = _gemini_key(gemini_key)
-    if key and (want_gemini or voice == DEFAULT_VOICE):
+    if key and want_gemini:
         g_voice = voice if voice in GEMINI_VOICES else "Fenrir"
         log(f"Trying Gemini TTS ({g_voice})…")
         try:
@@ -216,23 +217,75 @@ def _write_pcm_wav(path: Path, raw: bytes, mime: str) -> None:
 
 
 def _edge_tts(text: str, dest: Path, voice: str) -> TTSResult:
+    chunks = _split_narration(text)
+    if len(chunks) == 1:
+        audio, words, voice = _edge_stream(chunks[0], voice)
+        mp3 = dest.with_suffix(".mp3")
+        mp3.write_bytes(audio)
+        wav_path = dest.with_suffix(".wav")
+        _to_wav(mp3, wav_path)
+        duration = _wav_duration(wav_path)
+        words = _finalize_words(words, text, duration)
+        return TTSResult(wav_path, voice, "edge-tts", words, duration, text)
+
+    # Same voice on every chunk, then one continuous WAV so only one narrator plays.
+    from clipper.ffmpeg_utils import find_ffmpeg, run
+
+    work = dest.parent / "_tts_chunks"
+    work.mkdir(parents=True, exist_ok=True)
+    wavs: list[Path] = []
+    words: list = []
+    offset = 0.0
+    for i, chunk in enumerate(chunks):
+        audio, chunk_words, voice = _edge_stream(chunk, voice)
+        if len(audio) < 400:
+            continue
+        mp3 = work / f"part-{i:03d}.mp3"
+        wav = work / f"part-{i:03d}.wav"
+        mp3.write_bytes(audio)
+        _to_wav(mp3, wav)
+        dur = _wav_duration(wav)
+        for w in chunk_words:
+            w.start += offset
+            w.end += offset
+        words.extend(chunk_words)
+        wavs.append(wav)
+        offset += dur
+    if not wavs:
+        raise RuntimeError("edge-tts returned empty audio")
+    wav_path = dest.with_suffix(".wav")
+    if len(wavs) == 1:
+        wav_path.write_bytes(wavs[0].read_bytes())
+    else:
+        lst = work / "concat.txt"
+        lst.write_text(
+            "\n".join(f"file '{w.resolve().as_posix().replace(chr(39), r"'''")}'" for w in wavs) + "\n",
+            encoding="utf-8",
+        )
+        run([find_ffmpeg(), "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(wav_path)])
+    duration = _wav_duration(wav_path)
+    words = _finalize_words(words, text, duration)
+    return TTSResult(wav_path, voice, "edge-tts", words, duration, text)
+
+
+def _edge_stream(text: str, voice: str) -> tuple[bytes, list, str]:
     try:
         import edge_tts
     except ImportError as exc:
         raise RuntimeError(
             "edge-tts is not installed. Run: pip install edge-tts"
         ) from exc
+    from clipper.transcribe import Word
 
-    async def _run() -> tuple[bytes, list[Word]]:
-        comm = edge_tts.Communicate(text, voice=voice, rate="+4%", pitch="+0Hz")
+    async def _run(use_voice: str, rate: str) -> tuple[bytes, list]:
+        comm = edge_tts.Communicate(text, voice=use_voice, rate=rate, pitch="+0Hz")
         audio = bytearray()
-        words: list[Word] = []
+        words: list = []
         async for chunk in comm.stream():
             typ = chunk.get("type")
             if typ == "audio":
                 audio.extend(chunk.get("data") or b"")
             elif typ == "WordBoundary":
-                # offset / duration are in 100-nanosecond units
                 start = float(chunk.get("offset", 0)) / 10_000_000
                 dur = float(chunk.get("duration", 0)) / 10_000_000
                 token = (chunk.get("text") or "").strip()
@@ -240,22 +293,47 @@ def _edge_tts(text: str, dest: Path, voice: str) -> TTSResult:
                     words.append(Word(token, start, start + max(0.05, dur)))
         return bytes(audio), words
 
-    audio, words = asyncio.run(_run())
-    if len(audio) < 1000:
-        raise RuntimeError("edge-tts returned empty audio")
-    mp3 = dest.with_suffix(".mp3")
-    mp3.write_bytes(audio)
-    wav_path = dest.with_suffix(".wav")
-    _to_wav(mp3, wav_path)
-    duration = _wav_duration(wav_path)
+    order = [voice] + [v for v in EDGE_VOICES if v != voice]
+    last_err: Exception | str | None = None
+    for use in order:
+        for rate in ("+0%", "+4%"):
+            try:
+                audio, words = asyncio.run(_run(use, rate))
+                if len(audio) >= 1000:
+                    return audio, words, use
+                last_err = f"{use} returned {len(audio)} bytes"
+            except Exception as exc:  # noqa: BLE001
+                last_err = exc
+                continue
+    raise RuntimeError(f"edge-tts failed for all voices ({last_err})")
+
+
+def _split_narration(text: str, target_words: int = 350) -> list[str]:
+    sentences = re.split(r"(?<=[.!?])\s+", (text or "").strip())
+    sentences = [s.strip() for s in sentences if s.strip()]
+    if not sentences:
+        return [text]
+    chunks, buf, count = [], [], 0
+    for sent in sentences:
+        n = len(sent.split())
+        if buf and count + n > target_words:
+            chunks.append(" ".join(buf))
+            buf, count = [sent], n
+        else:
+            buf.append(sent)
+            count += n
+    if buf:
+        chunks.append(" ".join(buf))
+    return chunks or [text]
+
+
+def _finalize_words(words, text: str, duration: float):
     if not words:
         words = _estimate_words(text, duration)
-    else:
-        # Clamp to duration
-        for w in words:
-            w.start = max(0.0, min(w.start, duration))
-            w.end = max(w.start + 0.04, min(w.end, duration))
-    return TTSResult(wav_path, voice, "edge-tts", words, duration, text)
+    for w in words:
+        w.start = max(0.0, min(w.start, duration))
+        w.end = max(w.start + 0.04, min(w.end, duration))
+    return words
 
 
 def _to_wav(src: Path, dest: Path) -> None:

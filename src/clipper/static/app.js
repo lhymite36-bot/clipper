@@ -29,6 +29,7 @@ if (recapForm) {
     data.append("model", document.getElementById("recap-model").value);
     data.append("plot_text", document.getElementById("recap-plot-text").value);
     data.append("spoilers", document.getElementById("recap-spoilers").checked ? "1" : "0");
+    data.append("enqueue", document.getElementById("recap-enqueue").checked ? "1" : "0");
     const target = document.getElementById("recap-target").value;
     if (target) data.append("target_seconds", target);
     const file = document.getElementById("recap-file").files[0];

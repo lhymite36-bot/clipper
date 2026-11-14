@@ -80,7 +80,7 @@ def test_align_shots_are_short_and_cover_every_line():
     scenes = [Scene(i * 10, i * 10 + 8) for i in range(12)]
     words = [Word("dragon", 12.0, 12.4), Word("mountains", 45.0, 45.5)]
     tr = Transcript("dragon mountains", "en", [], words, 120)
-    shots = align_shots(lines, durs, scenes, tr, 120, mirror=True)
+    shots = align_shots(lines, durs, scenes, tr, 120)
     assert shots
     # Every line has at least one shot
     covered = {s.line_index for s in shots}
@@ -101,6 +101,8 @@ def test_voices_and_word_estimate():
     assert "en-US-AndrewNeural" in names
     assert "Fenrir" in names
     assert resolve_voice("andrew") == "en-US-AndrewNeural"
+    assert resolve_voice("auto") == "en-US-AriaNeural"
+    assert "en-US-AriaNeural" in names
     assert resolve_voice("fenrir") == "Fenrir"
     words = _estimate_words("This girl finds a dragon!", 2.0)
     assert [w.word for w in words] == ["This", "girl", "finds", "a", "dragon"]
@@ -113,3 +115,22 @@ def test_recap_parser_requires_title():
     assert args.title == "Sintel"
     assert args.format == "long"
     assert args.target_seconds == 150
+    help_txt = p.format_help().lower()
+    assert "mirror" not in help_txt
+    assert "flip" not in help_txt
+
+
+def test_long_heuristic_reaches_target_length():
+    script = write_script("Sintel", None, fmt="long", spoilers=True, llm=False, target_seconds=150)
+    assert script.word_count >= 280
+    assert script.lines[-1].beat == "cta"
+
+
+def test_recap_has_no_content_id_evasion():
+    root = Path(__file__).resolve().parents[1] / "src" / "clipper"
+    render = (root / "recap_render.py").read_text(encoding="utf-8")
+    scenes = (root / "recap_scenes.py").read_text(encoding="utf-8")
+    assert "hflip" not in render
+    assert "PLAY_SPEED" not in render
+    assert "PLAY_SPEED" not in scenes
+    assert "mirror" not in scenes

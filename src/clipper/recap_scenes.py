@@ -14,8 +14,6 @@ from clipper.transcribe import Transcript
 # Recap-channel cuts stay short so the original scene never plays out in full.
 MIN_SHOT = 2.0
 MAX_SHOT = 5.0
-# Transformative playback rate (applied at render time).
-PLAY_SPEED = 1.05
 
 BEAT_WINDOW = {
     "hook": (0.02, 0.22),
@@ -46,9 +44,8 @@ class Shot:
     src_end: float
     line_index: int
     beat: str
-    mirror: bool = False
     zoom: float = 1.08
-    # How long this shot should last on the output timeline (after speed).
+    # How long this shot should last on the output timeline.
     out_duration: float = 0.0
     reason: str = ""
 
@@ -176,7 +173,6 @@ def align_shots(
     transcript: Transcript | None,
     movie_duration: float,
     *,
-    mirror: bool = True,
     progress=None,
 ) -> list[Shot]:
     """Cover each spoken line with 2–5 s shots, never a long continuous take."""
@@ -187,8 +183,7 @@ def align_shots(
     shots: list[Shot] = []
     for i, (line, vo_dur) in enumerate(zip(lines, line_durations)):
         vo_dur = max(1.2, float(vo_dur))
-        # After PLAY_SPEED the clip is shorter, so pull a little extra source.
-        need = vo_dur * PLAY_SPEED
+        need = vo_dur
         pieces = _split_need(need)
         center, why = _target_time(line, transcript, movie_duration)
         for j, piece in enumerate(pieces):
@@ -207,9 +202,8 @@ def align_shots(
                     src_end=end,
                     line_index=i,
                     beat=line.beat,
-                    mirror=bool(mirror and ((i + j) % 3 == 2)),
                     zoom=zoom,
-                    out_duration=min(MAX_SHOT, (end - start) / PLAY_SPEED),
+                    out_duration=min(MAX_SHOT, end - start),
                     reason=why if j == 0 else scene_why,
                 )
             )

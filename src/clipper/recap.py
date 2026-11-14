@@ -51,7 +51,7 @@ def run_recap(
     music: Path | str | None = None,
     music_volume: float = 0.12,
     duck: float = 0.10,
-    mirror: bool = True,
+    enqueue: bool | None = None,
     gemini_key: str | None = None,
     groq_key: str | None = None,
     keep_work: bool = False,
@@ -132,7 +132,6 @@ def run_recap(
         scenes,
         transcript,
         duration or tts.duration,
-        mirror=mirror,
         progress=log,
     )
     # If we have no footage, invent still-only shots.
@@ -153,6 +152,25 @@ def run_recap(
 
     slug = re.sub(r"[^A-Za-z0-9]+", "-", title).strip("-").lower()[:40] or "recap"
     dest = out_dir / f"{slug}-{'short' if fmt == 'short' else 'long'}.mp4"
+
+    music_path = Path(music) if music else None
+    if music and not (music_path and music_path.is_file()):
+        log(f"Music file not found, using a copyright-safe bed: {music}")
+        music_path = None
+    if not music_path:
+        try:
+            from clipper.library import pick_music
+
+            pick = pick_music("cinematic-edit")
+            if pick:
+                music_path = pick.path
+                log(f"Music: {pick.mood} {pick.source} bed ({pick.path.name})")
+                if pick.credit and pick.credit not in (script.description or ""):
+                    script.description = (script.description or "").rstrip() + "\n\n" + pick.credit
+        except Exception as exc:  # noqa: BLE001
+            log(f"No music bed ({exc})")
+            music_path = None
+
     from clipper.recap_render import render_recap
 
     render_recap(
@@ -164,7 +182,7 @@ def run_recap(
         vo_tr,
         fmt=fmt,
         grade=grade,
-        music=music,
+        music=music_path,
         music_volume=music_volume,
         duck=duck,
         progress=log,
@@ -202,7 +220,7 @@ def run_recap(
                 except OSError:
                     pass
     log(f"Done. Recap at {dest}")
-    return RecapResult(
+    result = RecapResult(
         path=str(dest),
         sidecar=str(sidecar),
         title=script.youtube_title or title,
@@ -218,6 +236,25 @@ def run_recap(
         script_source=script.source_used,
         footage="video" if video else "fallback",
     )
+    from clipper.config import load_settings
+    from clipper.publish import enqueue as queue_add
+
+    do_enqueue = load_settings().get("enqueue", True) if enqueue is None else bool(enqueue)
+    if do_enqueue:
+        item = queue_add(
+            {
+                "path": result.path,
+                "sidecar": result.sidecar,
+                "title": result.title,
+                "description": result.description,
+                "hashtags": result.tags,
+                "hook": result.hook,
+                "preset": f"recap-{fmt}",
+                "layout": "fill" if fmt == "short" else "wide",
+            }
+        )
+        log(f"Queued {item['id']} for review (nothing posts until you approve and disable draft-only).")
+    return result
 
 
 def _load_source(source: str | None, work: Path, log) -> tuple[Path | None, dict]:
@@ -286,7 +323,8 @@ def _render_sidecar(script, dest, voice, backend, duration, chapters, has_video)
         ch_lines = "Chapters:\n" + "\n".join(f"{_ts(c['time'])} {c['title']}" for c in chapters) + "\n\n"
     credit = (
         "This is a commentary/review recap, not the official film. "
-        "Please credit and support the original creators."
+        "Please credit and support the original creators. "
+        "Platforms can still claim the video through Content ID even when the edit is transformative."
     )
     footage = "Edited scenes from the provided film." if has_video else "Illustrated stills (no source footage)."
     return (
@@ -309,7 +347,7 @@ def build_recap_parser(prog: str = "clipper recap"):
 
     p = argparse.ArgumentParser(
         prog=prog,
-        description="Make an AI-voiceover movie recap (Short or long) from a film you have the rights to use.",
+        description="Make an AI-voiceover movie recap (Short or long) from a film you have the rights to use. Recaps can still be claimed by Content ID; this tool does not try to hide a film from detection.",
     )
     p.add_argument("source", nargs="?", help="Local movie/trailer file, or a URL yt-dlp can fetch. Omit for illustrated stills.")
     p.add_argument("--title", required=True, help="Movie title (required)")
@@ -327,7 +365,8 @@ def build_recap_parser(prog: str = "clipper recap"):
     p.add_argument("--grade", choices=["auto", "none", "moody", "contrast", "warm"], default="moody")
     p.add_argument("--music", default=None, help="Optional royalty-free / user-supplied music bed (local file only)")
     p.add_argument("--music-volume", type=float, default=0.12)
-    p.add_argument("--no-mirror", action="store_true", help="Don't flip any shots")
+    p.add_argument("--enqueue", action="store_true", default=None, help="Add the recap to the review queue (default on)")
+    p.add_argument("--no-enqueue", action="store_true", help="Don't add the recap to the publish queue")
     p.add_argument("--gemini-key", default=None)
     p.add_argument("--groq-key", default=None)
     p.add_argument("--keep-work", action="store_true")
@@ -366,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
             grade=None if args.grade == "auto" else args.grade,
             music=args.music,
             music_volume=args.music_volume,
-            mirror=not args.no_mirror,
+            enqueue=False if args.no_enqueue else (True if args.enqueue else None),
             gemini_key=args.gemini_key,
             groq_key=args.groq_key,
             keep_work=args.keep_work,

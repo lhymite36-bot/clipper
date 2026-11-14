@@ -345,7 +345,53 @@ def _heuristic_script(
             words += len(s.split())
             if words >= lo:
                 break
+    if words < lo:
+        lines = _stretch_lines(lines, lo, who, title)
     return RecapScript(title=title, hook=_short_hook(hook_line), format=fmt, spoilers=spoilers, lines=lines)
+
+
+
+def _stretch_lines(lines: list[RecapLine], lo: int, who: str, title: str) -> list[RecapLine]:
+    """Pad a short fallback script toward the target length with original commentary, not repeated plot dumps."""
+    bridges = [
+        f"And still, {who.lower()} keeps moving.",
+        "The world does not get kinder from here.",
+        "Every choice feels like it might be the last one.",
+        "Hope is a dangerous thing to carry this far.",
+        "You can feel the story tightening, one cut at a time.",
+        "Nothing about this road is accidental.",
+        "The quiet is worse than the fights.",
+        "What looked like a rescue is starting to look like a test.",
+        "There is no map for what comes next.",
+        "People in this world do not give second chances.",
+        "The search is no longer just a search.",
+        f"If you blink, you miss why {title} still hits so hard.",
+        "That is the moment the recap has been walking you toward.",
+        "Hold that image. It matters more than it first appears.",
+        "The next beat is where the story stops being simple.",
+    ]
+    cta = lines[-1] if lines and lines[-1].beat == "cta" else None
+    body = list(lines[:-1] if cta else lines)
+    words = sum(len(re.findall(r"[A-Za-z0-9']+", ln.text)) for ln in lines)
+    i = 0
+    existing = {ln.text for ln in body}
+    # Re-voice existing beats with short commentary after each one.
+    while words < lo and body:
+        src = body[i % len(body)]
+        bridge = bridges[i % len(bridges)]
+        if i >= len(bridges):
+            bridge = f"{bridge} {src.text.rstrip('.')}, and the cost keeps rising."
+        if bridge not in existing:
+            beat = src.beat if src.beat != "hook" else "setup"
+            body.append(RecapLine(bridge, beat, _keywords(bridge) or src.keywords))
+            existing.add(bridge)
+            words += len(bridge.split())
+        i += 1
+        if i > 400:
+            break
+    if cta:
+        body.append(cta)
+    return body
 
 
 def _short_hook(text: str) -> str:

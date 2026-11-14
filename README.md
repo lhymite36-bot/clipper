@@ -225,6 +225,24 @@ Each run writes an MP4 plus a `.txt` sidecar with title, description (including 
 Only recap content you have the rights to use. Public-domain and Creative Commons films are the safe test case.
 
 
+
+## Movie recap mode (v1.2.0)
+
+`clipper recap` (or the **Movie recap** tab in `clipper --ui`) makes an AI-narrated recap or explainer from a movie or trailer you have the rights to use.
+
+```text
+clipper recap /path/to/sintel.mp4 --title Sintel --format short --subs sintel.en.srt
+clipper recap /path/to/sintel.mp4 --title Sintel --format long --spoilers
+```
+
+- **Short** is a 45–60 second 9:16 clip with a hook bar and word-by-word captions.
+- **Long** is a 16:9 recap (about 8–15 minutes by default) with chapters in the sidecar.
+- A free Gemini key writes the script when available, with Groq as a fallback; otherwise Clipper uses a local writer. Gemini TTS is tried first for the voice, then a single edge-tts neural voice (one narrator only, selectable in the UI).
+- Each sentence is matched to a 2–5 second shot with PySceneDetect plus the transcript or `.srt`. The original audio is ducked under the voice, with a copyright-safe or user-supplied music bed. If there is no footage, Clipper uses illustrated stick-figure stills.
+- Finished recaps go to the same review queue as Shorts. Draft-only stays on until you turn it off.
+
+This is commentary/review, not the official film. **A recap can still be claimed by Content ID.** Clipper does not flip the picture, nudge the playback speed, or add any other feature whose purpose is evading detection.
+
 ## License
 
 MIT. Bundled fonts (Anton, Montserrat) are SIL Open Font License 1.1. The face-detection cascade is the standard OpenCV Haar cascade (Intel License). See `src/clipper/data/`.

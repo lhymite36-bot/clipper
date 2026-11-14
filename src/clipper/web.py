@@ -237,6 +237,7 @@ def create_app():
         subs: UploadFile | None = File(None),
         plot: UploadFile | None = File(None),
         music: UploadFile | None = File(None),
+        enqueue: str = Form("1"),
     ):
         if not (title or "").strip():
             raise HTTPException(400, "A movie title is required")
@@ -291,6 +292,7 @@ def create_app():
                 "language": language or "auto",
                 "grade": grade or "moody",
                 "music": music_path,
+                "enqueue": enqueue not in {"0", "false", "off"},
                 "gemini_key": gemini_key.strip() or None,
                 "groq_key": groq_key.strip() or None,
             },

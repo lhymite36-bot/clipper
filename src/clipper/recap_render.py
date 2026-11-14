@@ -7,9 +7,9 @@ from pathlib import Path
 from clipper.captions import build_ass, fonts_dir
 from clipper.ffmpeg_utils import find_ffmpeg, run
 from clipper.recap_fallback import make_still
-from clipper.recap_scenes import PLAY_SPEED, Shot
+from clipper.recap_scenes import Shot
 from clipper.recap_script import RecapLine, RecapScript
-from clipper.style import grade_filter, hook_bar_filter, LayoutPlan, colorize_keywords, pick_keywords
+from clipper.style import YT_TOP_SAFE, grade_filter, hook_bar_filter, LayoutPlan, pick_keywords
 from clipper.transcribe import Transcript
 
 SHORT_W, SHORT_H = 1080, 1920
@@ -95,11 +95,11 @@ def render_recap(
     # Hook bar + captions (word-by-word from the voiceover timings).
     vf_parts = []
     if fmt == "short":
-        layout = LayoutPlan("tight", "", int(SHORT_H * 0.18), 0, 70, 260)
+        layout = LayoutPlan("tight", "", int(SHORT_H * 0.20), 0, max(YT_TOP_SAFE, 150), 260)
         bar = hook_bar_filter(layout)
         if bar:
             vf_parts.append(bar)
-    hook_margin = 70 if fmt == "short" else 48
+    hook_margin = max(YT_TOP_SAFE, 150) if fmt == "short" else 48
     cap_margin = 260 if fmt == "short" else 80
     ass_path = dest.with_suffix(".ass")
     keywords = pick_keywords(script.hook, 2) if script.hook else []
@@ -196,7 +196,7 @@ def render_recap(
 
 def _render_shot(ffmpeg, source, dest, shot: Shot, width, height, grade_vf, fmt: str) -> None:
     dur = max(0.8, shot.src_end - shot.src_start)
-    # Zoom + optional mirror + speed + grade + layout.
+    # Zoom/reframe + grade + layout (no flip, no playback-speed tricks).
     z = max(1.02, min(1.18, shot.zoom))
     # Ken-burns-ish slow punch over the take, then crop to target.
     # For Shorts, fill a 9:16 frame with a blurred copy behind a slightly
@@ -224,7 +224,7 @@ def _render_shot(ffmpeg, source, dest, shot: Shot, width, height, grade_vf, fmt:
         )
         # Reset to a reliable graph (split after pad is messy with commas vs filter_complex).
         # Use a single crop/zoom on a blurred-background compose via -filter_complex in the command.
-        vf = _shorts_vf(width, height, z, shot.mirror, grade_vf)
+        vf = _shorts_vf(width, height, z, grade_vf)
         args = [
             ffmpeg, "-y",
             "-ss", f"{shot.src_start:.3f}", "-t", f"{dur:.3f}",
@@ -245,9 +245,6 @@ def _render_shot(ffmpeg, source, dest, shot: Shot, width, height, grade_vf, fmt:
         f"scale=iw*{z:.3f}:ih*{z:.3f}",
         f"crop={width}:{height}",
     ]
-    if shot.mirror:
-        parts.append("hflip")
-    parts.append(f"setpts=PTS/{PLAY_SPEED:.3f}")
     if grade_vf:
         parts.append(grade_vf)
     parts.append("fps=30")
@@ -266,8 +263,7 @@ def _render_shot(ffmpeg, source, dest, shot: Shot, width, height, grade_vf, fmt:
     )
 
 
-def _shorts_vf(width: int, height: int, zoom: float, mirror: bool, grade_vf: str) -> str:
-    flip = ",hflip" if mirror else ""
+def _shorts_vf(width: int, height: int, zoom: float, grade_vf: str) -> str:
     grade = f",{grade_vf}" if grade_vf else ""
     # Background: scale-cover + blur. Foreground: fit width, slight zoom, overlay centered.
     return (
@@ -275,8 +271,8 @@ def _shorts_vf(width: int, height: int, zoom: float, mirror: bool, grade_vf: str
         f"crop={width}:{height},gblur=sigma=22,eq=brightness=-0.06:saturation=0.8{grade}[bg];"
         f"[0:v]scale={width}:-2:force_original_aspect_ratio=decrease,"
         f"scale=iw*{zoom:.3f}:ih*{zoom:.3f},"
-        f"setsar=1{flip}{grade}[fg];"
-        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setpts=PTS/{PLAY_SPEED:.3f},fps=30,format=yuv420p[v]"
+        f"setsar=1{grade}[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p[v]"
     )
 
 
@@ -287,7 +283,6 @@ def _cut_original_audio(ffmpeg, source: Path, shots: list[Shot], work: Path) -> 
     for i, shot in enumerate(shots):
         dest = work / f"audio-{i:04d}.wav"
         dur = max(0.2, shot.src_end - shot.src_start)
-        # atempo for 1.05 is fine (0.5–2.0).
         try:
             run(
                 [
@@ -295,7 +290,7 @@ def _cut_original_audio(ffmpeg, source: Path, shots: list[Shot], work: Path) -> 
                     "-ss", f"{shot.src_start:.3f}", "-t", f"{dur:.3f}",
                     "-i", str(source),
                     "-vn",
-                    "-af", f"atempo={PLAY_SPEED:.3f},aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo",
+                    "-af", "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo",
                     "-c:a", "pcm_s16le",
                     str(dest),
                 ]
@@ -306,7 +301,7 @@ def _cut_original_audio(ffmpeg, source: Path, shots: list[Shot], work: Path) -> 
         except Exception:
             pass
         # Silent pad of the expected output duration.
-        silence = max(0.2, dur / PLAY_SPEED)
+        silence = max(0.2, dur)
         run(
             [
                 ffmpeg, "-y",

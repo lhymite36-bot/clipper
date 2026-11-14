@@ -119,7 +119,8 @@
     </form>
 
     <form id="recap-form" class="card tab-panel hidden" data-panel="recap">
-      <p class="hint">Make an AI-voiceover recap of a film or trailer you have the rights to use. Short = 45–60s vertical; long = 16:9. Music must be a file you own or a royalty-free track.</p>
+      <p class="hint">Make an AI-voiceover recap of a film or trailer you have the rights to use. Short = 45–60s vertical with a hook bar; long = 16:9 with chapters. Music must be a file you own or a royalty-free / original bed — Clipper never rips audio from YouTube.</p>
+      <p class="hint">Important: a recap can still be claimed by Content ID even when the narration, cuts, and grade make it a commentary/review. Clipper does not flip, speed-shift, or otherwise try to hide a film from detection.</p>
       <label>Movie title (required)
         <input type="text" id="recap-title" name="title" maxlength="120" placeholder="Sintel" required />
       </label>
@@ -141,7 +142,7 @@
         </label>
         <label>Voice
           <select id="recap-voice" name="voice">
-            <option value="auto" selected>Auto (Gemini Fenrir, else Andrew)</option>
+            <option value="auto" selected>Auto (Gemini Fenrir, else Aria)</option>
             <option value="Fenrir">Fenrir (Gemini)</option>
             <option value="Charon">Charon (Gemini)</option>
             <option value="Kore">Kore (Gemini)</option>
@@ -180,6 +181,7 @@
         <input type="file" id="recap-music" name="music" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" />
       </label>
       <label class="check"><input type="checkbox" id="recap-spoilers" /> Include spoilers / the ending (off by default for Shorts)</label>
+      <label class="check"><input type="checkbox" id="recap-enqueue" checked /> Add the finished recap to the review queue (nothing posts until you approve it and turn off draft-only)</label>
       <button type="submit" id="recap-go">Make recap</button>
     </form>
 
