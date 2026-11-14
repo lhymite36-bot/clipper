@@ -18,8 +18,14 @@ samples/*.mp4
 samples/*.ass
 samples/clips.json
 samples/0*.txt
+samples/v2/*.mp4
+samples/v2/*.ass
+samples/v2/clips.json
+samples/v2/0*.txt
 !samples/SOURCE.txt
 !samples/README.md
+!samples/v2/SOURCE.txt
+!samples/v2/README.md
 jobs/
 .api_key
 /.models/

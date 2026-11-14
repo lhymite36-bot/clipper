@@ -24,12 +24,12 @@
         <label>Clips
           <input type="number" id="count" name="count" min="1" max="20" value="5" />
         </label>
-        <label>Style
-          <select id="style" name="style">
-            <option value="auto" selected>Auto (face, then blur)</option>
-            <option value="face">Face crop</option>
-            <option value="center">Center crop</option>
-            <option value="blur">Blurred background</option>
+        <label>Preset
+          <select id="preset" name="preset">
+            <option value="auto" selected>Auto</option>
+            <option value="cinematic-edit">Cinematic edit</option>
+            <option value="story-skit">Story skit</option>
+            <option value="sports-montage">Sports montage</option>
           </select>
         </label>
         <label>Whisper model
@@ -40,11 +40,49 @@
           </select>
         </label>
       </div>
+      <div class="row">
+        <label>Layout
+          <select id="layout" name="layout">
+            <option value="auto" selected>Auto (tight vs letterbox)</option>
+            <option value="tight">Tight 9:16 crop</option>
+            <option value="bars">16:9 with bars</option>
+            <option value="blur">Blur fill</option>
+          </select>
+        </label>
+        <label>Grade
+          <select id="grade" name="grade">
+            <option value="auto" selected>Auto (follow preset)</option>
+            <option value="none">None</option>
+            <option value="moody">Moody / desaturated</option>
+            <option value="contrast">High contrast</option>
+            <option value="warm">Warm</option>
+          </select>
+        </label>
+        <label>Captions
+          <select id="captions" name="captions">
+            <option value="auto" selected>Auto (words for speech)</option>
+            <option value="words">Word-by-word</option>
+            <option value="minimal">Minimal</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+      </div>
       <label>Hook text on every clip (optional)
-        <input type="text" id="hook" name="hook" maxlength="60" placeholder="Leave blank to auto-write one" />
+        <input type="text" id="hook" name="hook" maxlength="80" placeholder="Leave blank for a curiosity-gap hook" />
+      </label>
+      <label>Music bed (optional, your file or royalty-free only)
+        <input type="file" id="music" name="music" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" />
       </label>
       <details>
-        <summary>Optional free API keys (Gemini or Groq). Leave blank to use the local heuristic.</summary>
+        <summary>Crop hint and optional free API keys (Gemini or Groq)</summary>
+        <label>Tight-crop hint
+          <select id="style" name="style">
+            <option value="auto" selected>Auto (face, then center)</option>
+            <option value="face">Face crop</option>
+            <option value="center">Center crop</option>
+            <option value="blur">Blurred background</option>
+          </select>
+        </label>
         <label>Gemini API key
           <input type="password" id="gemini" name="gemini_key" autocomplete="off" />
         </label>
@@ -52,7 +90,8 @@
           <input type="password" id="groq" name="groq_key" autocomplete="off" />
         </label>
       </details>
-      <label class="check"><input type="checkbox" id="captions" checked /> Burn in word-by-word captions</label>
+      <label class="check"><input type="checkbox" id="punch" checked /> Punch-in zoom at the payoff</label>
+      <label class="check"><input type="checkbox" id="loop" checked /> End on a calm frame so the clip loops</label>
       <button type="submit" id="go">Make clips</button>
     </form>
 

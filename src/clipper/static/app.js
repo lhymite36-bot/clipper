@@ -18,14 +18,21 @@ form.addEventListener("submit", async (e) => {
   const data = new FormData();
   data.append("url", document.getElementById("url").value.trim());
   data.append("count", document.getElementById("count").value);
+  data.append("preset", document.getElementById("preset").value);
+  data.append("layout", document.getElementById("layout").value);
+  data.append("grade", document.getElementById("grade").value);
   data.append("style", document.getElementById("style").value);
   data.append("model", document.getElementById("model").value);
   data.append("hook", document.getElementById("hook").value);
   data.append("gemini_key", document.getElementById("gemini").value);
   data.append("groq_key", document.getElementById("groq").value);
-  data.append("captions", document.getElementById("captions").checked ? "1" : "0");
+  data.append("captions", document.getElementById("captions").value);
+  data.append("punch", document.getElementById("punch").checked ? "1" : "0");
+  data.append("loop", document.getElementById("loop").checked ? "1" : "0");
   const file = document.getElementById("file").files[0];
   if (file) data.append("file", file);
+  const music = document.getElementById("music").files[0];
+  if (music) data.append("music", music);
 
   try {
     const res = await fetch("/api/jobs", { method: "POST", body: data });
@@ -77,7 +84,9 @@ function renderClips(jobId, clips) {
           <h3>${escapeHtml(c.title || "Clip " + c.index)}</h3>
           <p>${escapeHtml(c.description || "")}</p>
           <p class="tags">${escapeHtml(tags)}</p>
-          <p>${c.start.toFixed(1)}s – ${c.end.toFixed(1)}s · ${c.duration.toFixed(1)}s</p>
+          <p>${c.start.toFixed(1)}s – ${c.end.toFixed(1)}s · ${c.duration.toFixed(1)}s${c.preset ? " · " + escapeHtml(c.preset) : ""}${c.layout ? " · " + escapeHtml(c.layout) : ""}</p>
+          ${c.hook ? `<p>Hook: ${escapeHtml(c.hook)}</p>` : ""}
+          ${(c.title_options && c.title_options.length) ? `<p>Title options: ${escapeHtml(c.title_options.join(" · "))}</p>` : ""}
           <p>
             <a class="dl" href="${fileUrl}" download>Download MP4</a>
             <a class="dl" href="${txtUrl}" download>Title & hashtags</a>

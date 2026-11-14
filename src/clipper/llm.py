@@ -95,16 +95,22 @@ Video duration: {duration:.1f} seconds
 Transcript with timestamps:
 {transcript_text}
 
-Pick the top {count} moments. Each clip MUST be between {min_dur:.0f} and {max_dur:.0f} seconds long, must stay inside 0 and {duration:.1f}, and must not overlap. Prefer moments with a hook in the first 3 seconds, a punchline or payoff, laughter, surprise, a strong opinion, a question, or a clear tip. Avoid intros, outros, and dead air.
+Pick up to {count} moments that each have a REAL payoff (a punchline, laugh, reaction, surprise, or sharp tip). Do not invent moments or pad the list. For every clip:
+- start a little before the setup
+- put the payoff in the last 30% of the clip
+- end 2–4 seconds after that payoff
+- stay between {min_dur:.0f} and {max_dur:.0f} seconds, inside 0 and {duration:.1f}, with no overlaps
+- write a hook from words that are actually spoken, describing what happens. Never use a generic "WAIT FOR IT" (or similar) unless that phrase is in the transcript AND the payoff is in the last 30% of the clip.
 
 Return ONLY valid JSON with this shape:
 {{
   "moments": [
     {{
       "start": 12.5,
-      "end": 38.0,
-      "hook": "SHORT HOOK TEXT IN ALL CAPS",
-      "reason": "why this moment works",
+      "end": 32.0,
+      "peak": 29.4,
+      "hook": "SHORT HOOK FROM THE ACTUAL LINE",
+      "reason": "why this payoff works",
       "title": "YouTube Short title under 70 characters",
       "description": "2-3 sentence description that credits the original creator and asks viewers to watch the full video",
       "hashtags": ["shorts", "youtube", "example"]
@@ -146,8 +152,15 @@ def _parse_moments(payload: Any, duration: float, min_dur: float, max_dur: float
             continue
         hook = str(item.get("hook") or "").strip()
         title = str(item.get("title") or "").strip()
-        if not hook or not title:
-            auto_hook, auto_title = _hook_from_text(str(item.get("reason") or title or hook))
+        peak_raw = item.get("peak", item.get("payoff"))
+        try:
+            peak = float(peak_raw) if peak_raw is not None else None
+        except (TypeError, ValueError):
+            peak = None
+        if peak is not None:
+            peak = min(max(start, peak), end)
+        if not title:
+            auto_hook, auto_title = _hook_from_text(str(item.get("reason") or hook or title))
             hook = hook or auto_hook
             title = title or auto_title
         tags = item.get("hashtags") or []
@@ -161,10 +174,11 @@ def _parse_moments(payload: Any, duration: float, min_dur: float, max_dur: float
                 score=10.0 - len(out),
                 reason=str(item.get("reason") or "LLM pick"),
                 hook=hook[:60],
-                title=title[:80],
+                title=(title or "")[:80],
                 description=str(item.get("description") or "").strip(),
                 hashtags=tags[:12],
                 source=source,
+                peak=None if peak is None else round(peak, 3),
             )
         )
         if len(out) >= count:

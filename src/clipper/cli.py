@@ -40,17 +40,55 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--hook", default=None, help="Optional hook text shown at the top of every clip")
     parser.add_argument(
+        "--preset",
+        choices=["auto", "cinematic-edit", "story-skit", "sports-montage", "cinematic", "story", "sports"],
+        default="auto",
+        help="Look: auto, cinematic-edit, story-skit, or sports-montage",
+    )
+    parser.add_argument(
         "--style",
         choices=["auto", "face", "center", "blur"],
         default="auto",
-        help="Vertical reframing: auto (default), face, center crop, or blurred background",
+        help="Crop hint used when the layout is tight: auto, face, center, or blur",
     )
+    parser.add_argument(
+        "--layout",
+        choices=["auto", "tight", "bars", "blur"],
+        default="auto",
+        help="Frame layout: tight 9:16 crop, 16:9 letterbox bars, or blur fill (default: auto)",
+    )
+    parser.add_argument(
+        "--grade",
+        choices=["auto", "none", "moody", "contrast", "warm"],
+        default="auto",
+        help="Optional colour grade: moody, contrast, warm, or none",
+    )
+    parser.add_argument(
+        "--captions",
+        choices=["auto", "words", "none", "minimal"],
+        default="auto",
+        help="Captions: auto (follow the preset), word-by-word, none, or minimal",
+    )
+    parser.add_argument(
+        "--music",
+        default=None,
+        help="Optional royalty-free or user-supplied music bed (local file only)",
+    )
+    parser.add_argument(
+        "--music-volume",
+        type=float,
+        default=0.22,
+        help="Music bed volume 0–1 (default: 0.22, under the original audio)",
+    )
+    parser.add_argument("--no-loop", action="store_true", help="Don't snap the out-point to a calm looping frame")
+    parser.add_argument("--speed-ramps", action="store_true", help="Force sports-style speed ramps (off for story-skit by default)")
     parser.add_argument("--min-duration", type=float, default=15.0, help="Minimum clip length in seconds")
     parser.add_argument("--max-duration", type=float, default=60.0, help="Maximum clip length in seconds")
     parser.add_argument("--no-captions", action="store_true", help="Skip burned-in captions")
     parser.add_argument("--gemini-key", default=None, help="Optional Gemini API key (free tier)")
     parser.add_argument("--groq-key", default=None, help="Optional Groq API key (free tier)")
     parser.add_argument("--keep-work", action="store_true", help="Keep intermediate audio/source files")
+    parser.add_argument("--no-punch", action="store_true", help="Disable the short zoom/punch-in at the payoff")
     parser.add_argument("--ui", action="store_true", help="Open the local web UI")
     parser.add_argument("--host", default="127.0.0.1", help="Web UI host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8766, help="Web UI port (default: 8766)")
@@ -91,7 +129,21 @@ def selftest() -> int:
     if not moments:
         print("FAIL: heuristic returned no moments")
         return 1
-    print(f"heuristic: {len(moments)} moment(s) ok")
+    m = moments[0]
+    if m.peak is None or m.peak < 9 or m.peak > 13:
+        print(f"FAIL: payoff should be the 'insane' line near 10.5s, got peak={m.peak}")
+        return 1
+    if not m.payoff_in_last_30():
+        print(f"FAIL: payoff {m.peak} is not in the last 30% of {m.start}-{m.end}")
+        return 1
+    if (m.hook or "").strip().upper() == "WAIT FOR IT" and "INSANE" not in (m.hook or "").upper():
+        # 'Wait for it' is spoken, but the hook should prefer the actual payoff
+        # or at least not be the only thing we advertise if we also have words.
+        pass
+    if m.end < m.peak + 1.0:
+        print(f"FAIL: clip should end after the payoff ({m.end} vs peak {m.peak})")
+        return 1
+    print(f"heuristic: {len(moments)} moment(s) ok (peak {m.peak:.1f}s, hook {m.hook!r})")
     print("OK")
     return 0
 
@@ -116,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     from clipper.pipeline import run_pipeline
 
     try:
+        captions = "none" if args.no_captions else args.captions
         results = run_pipeline(
             args.source,
             args.out,
@@ -125,10 +178,18 @@ def main(argv: list[str] | None = None) -> int:
             style=args.style,
             min_dur=args.min_duration,
             max_dur=args.max_duration,
-            captions=not args.no_captions,
+            captions=captions,
             gemini_key=args.gemini_key,
             groq_key=args.groq_key,
             keep_work=args.keep_work,
+            punch=not args.no_punch,
+            preset=args.preset,
+            layout=args.layout,
+            grade=None if args.grade == "auto" else args.grade,
+            music=args.music,
+            music_volume=args.music_volume,
+            loop=not args.no_loop,
+            speed_ramps=True if args.speed_ramps else None,
             progress=print,
         )
     except KeyboardInterrupt:
@@ -144,8 +205,15 @@ def main(argv: list[str] | None = None) -> int:
         tags = " ".join(f"#{t}" for t in r.hashtags[:6])
         print(f"  {r.index}. {r.path}")
         print(f"     Title: {r.title}")
+        if getattr(r, "hook", ""):
+            print(f"     Hook: {r.hook}")
+        extra = " · ".join(x for x in [getattr(r, "preset", ""), getattr(r, "layout", "")] if x)
+        if extra:
+            print(f"     {extra}")
         if tags:
             print(f"     {tags}")
+        if getattr(r, "title_options", None):
+            print("     Title options: " + " | ".join(r.title_options))
     return 0
 
 

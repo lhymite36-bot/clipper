@@ -1,0 +1,16 @@
+Sample clips for Clipper v1.0.1 were generated on 2026-11-14 (Asia/Calcutta)
+from All India Bakchod's sketch "If People Treated Other Illnesses Like
+They Treat Depression" (5:08, 1920x1080).
+
+Source (Wikimedia Commons):
+https://upload.wikimedia.org/wikipedia/commons/8/8f/AIB_-_If_People_Treated_Other_Illnesses_Like_They_Treat_Depression.webm
+
+License: Creative Commons Attribution 3.0
+https://creativecommons.org/licenses/by/3.0/
+
+Please credit All India Bakchod when sharing these samples.
+
+Each file is 1080x1920 H.264 + AAC, story-skit preset (16:9 letterbox,
+curiosity-gap hook on the top bar, word-by-word captions, warm grade).
+The first two clips have a clear spoken/reaction payoff in the last 30%;
+clip 3 is a weaker action beat kept as a third example.

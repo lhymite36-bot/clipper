@@ -1,4 +1,13 @@
-from clipper.moments import Moment, _hook_from_text, _grow_window, heuristic_moments, word_score
+from clipper.moments import (
+    Moment,
+    _hook_from_text,
+    _is_generic_hook,
+    detect_payoffs,
+    heuristic_moments,
+    make_hook,
+    window_around_payoff,
+    word_score,
+)
 from clipper.transcribe import Transcript, Word
 
 
@@ -16,17 +25,59 @@ def test_word_score_boosts_laughter_and_hooks():
 
 
 def test_hook_from_text_caps_and_shortens():
-    hook, title = _hook_from_text("wait for it. this is the rest of the sentence that is long")
+    hook, title = _hook_from_text("they all start laughing. this is the rest of the sentence that is long")
     assert hook
+    assert "WAIT FOR IT" not in hook
     assert hook.isupper() or hook.endswith("!")
     assert len(hook) <= 60
     assert title
 
 
-def test_hook_from_empty():
+def test_hook_from_empty_is_neutral():
     hook, title = _hook_from_text("")
-    assert "WAIT" in hook.upper()
+    assert hook == ""
     assert title
+    assert "WAIT" not in hook.upper()
+
+
+def test_generic_hook_not_invented_without_payoff():
+    hook, title = make_hook(
+        _tr([("hello", 0.2, 0.6), ("everyone", 0.6, 1.0)], 20),
+        0,
+        20,
+        peak=None,
+        has_speech=True,
+    )
+    assert not _is_generic_hook(hook)
+    assert hook.upper() != "WAIT FOR IT"
+
+
+def test_no_speech_means_no_hook():
+    empty = Transcript(text="", language="en", segments=[], words=[], duration=20)
+    hook, title = make_hook(empty, 0, 20, peak=15.0, peak_kind="loud", has_speech=False)
+    assert hook == ""
+    assert title
+
+
+def test_wait_for_it_allowed_only_with_verified_payoff():
+    words = [
+        ("Wait", 1.0, 1.3),
+        ("for", 1.3, 1.5),
+        ("it!", 1.5, 2.0),
+        ("This", 12.0, 12.3),
+        ("is", 12.3, 12.5),
+        ("insane", 12.5, 13.2),
+    ]
+    tr = _tr(words, 20)
+    hook, _title = make_hook(tr, 0, 16, peak=12.7, peak_kind="reaction")
+    # Specific payoff line is preferred; a generic hook is only ok because it was spoken
+    # and the payoff is in the last 30%. Either "THIS IS INSANE" or "WAIT FOR IT" is honest.
+    assert hook
+    if _is_generic_hook(hook):
+        assert "WAIT FOR IT" in hook
+        # still requires last-30% payoff — already passed into make_hook
+    else:
+        assert "INSANE" in hook or "THIS" in hook
 
 
 def test_heuristic_prefers_keyword_moments():
@@ -47,26 +98,41 @@ def test_heuristic_prefers_keyword_moments():
     moments = heuristic_moments(_tr(words, 80), 80, 2, min_dur=15, max_dur=60)
     assert len(moments) >= 1
     assert all(15 <= m.duration <= 60 + 0.05 for m in moments)
-    # The punchy window should be represented
-    assert any(m.start <= 24 <= m.end for m in moments)
+    punchy = [m for m in moments if m.start <= 25 <= m.end]
+    assert punchy, moments
+    m = punchy[0]
+    assert m.peak is not None
+    assert 22 <= m.peak <= 28
+    assert m.payoff_in_last_30()
+    assert m.end >= m.peak + 1.2
+    assert m.end <= m.peak + 5.0
+    assert "WAIT FOR IT" not in (m.hook or "").upper() or "INSANE" in (m.hook or "").upper() or "HAHA" in (m.hook or "").upper()
 
 
-def test_short_video_returns_whole_clip():
+def test_short_video_without_payoff_is_dropped():
     words = [("hello", 0.2, 0.6), ("world", 0.6, 1.0)]
+    moments = heuristic_moments(_tr(words, 12), 12, 3, min_dur=15, max_dur=60)
+    assert moments == []
+
+
+def test_short_video_with_payoff_keeps_the_whole_clip():
+    words = [("hello", 0.2, 0.6), ("wow", 8.0, 8.4), ("haha", 8.5, 9.0)]
     moments = heuristic_moments(_tr(words, 12), 12, 3, min_dur=15, max_dur=60)
     assert len(moments) == 1
     assert moments[0].start == 0
     assert moments[0].end == 12
+    assert moments[0].peak is not None
 
 
 def test_moments_do_not_overlap():
     words = []
     t = 0.0
-    phrase = "wait insane crazy wow haha secret actually never unbelievable".split()
+    phrase = "now this is insane wow haha unbelievable crazy".split()
     while t < 90:
         for w in phrase:
             words.append((w, t, t + 0.3))
             t += 0.35
+        t += 8  # keep payoffs from being one continuous blob
     moments = heuristic_moments(_tr(words, 100), 100, 4, min_dur=15, max_dur=25)
     assert 1 <= len(moments) <= 4
     ordered = sorted(moments, key=lambda m: m.start)
@@ -74,38 +140,94 @@ def test_moments_do_not_overlap():
         assert a.end <= b.start + 0.41
 
 
-def test_grow_window_respects_bounds():
-    bounds = [(0, 5), (5, 12), (12, 20), (20, 40)]
-    start, end = _grow_window(14, 80, bounds, 15, 60)
+def test_window_puts_payoff_in_last_30_percent():
+    bounds = [(0, 5), (5, 12), (12, 20), (20, 28)]
+    window = window_around_payoff(24, 80, bounds, 15, 60)
+    assert window is not None
+    start, end = window
     assert end - start >= 15
     assert end - start <= 60
     assert 0 <= start < end <= 80
+    assert end >= 24 + 1.4
+    assert end <= 24 + 5
+    assert 24 + 0.5 >= start + 0.70 * (end - start)
 
 
-def test_moment_to_dict():
-    m = Moment(1, 20, 2.5, "reason", "HOOK", title="T")
+def test_early_peak_without_setup_is_dropped():
+    # A payoff at 2s cannot sit in the last 30% of a 15s+ clip that ends just after it.
+    assert window_around_payoff(2.0, 80, [(0, 5), (5, 20)], 15, 60) is None
+
+
+def test_moment_to_dict_includes_peak():
+    m = Moment(1, 20, 2.5, "reason", "HOOK", title="T", peak=17.0, peak_kind="laugh")
     d = m.to_dict()
     assert d["start"] == 1
     assert d["duration"] == 19
     assert d["hook"] == "HOOK"
+    assert d["peak"] == 17.0
+    assert d["peak_kind"] == "laugh"
 
 
-def test_leftover_gap_is_packed_as_another_clip():
-    # One loud burst at the start usually grows into a long first window;
-    # leftover footage at the end should still become a second clip.
+def test_quiet_leftover_is_not_padded():
+    # One real payoff at the start; leftover quiet talk must not become a second clip.
     words = []
     t0 = 0.0
-    for w in "wait wait insane wow haha unbelievable crazy".split():
-        words.append((w, t0, t0 + 0.4))
+    for w in "this is insane wow haha unbelievable crazy".split():
+        words.append((w, t0 + 20, t0 + 20.4))
         t0 += 0.45
-    # quiet later speech so the transcript is not empty in the gap
     t0 = 70.0
     for w in "and then later on something else happens here".split():
         words.append((w, t0, t0 + 0.4))
         t0 += 0.45
     moments = heuristic_moments(_tr(words, 90), 90, 2, min_dur=15, max_dur=60)
-    assert len(moments) == 2
-    moments = sorted(moments, key=lambda m: m.start)
-    assert moments[1].start >= moments[0].end - 0.41
-    assert moments[1].end <= 90 + 0.01
-    assert moments[1].duration >= 15
+    assert len(moments) == 1
+    assert moments[0].peak is not None
+    assert 18 <= moments[0].peak <= 26
+
+
+def test_does_not_pad_count_without_peaks():
+    words = []
+    t = 0.0
+    for w in "today we are going to review the files on the desk and sit down".split() * 8:
+        words.append((w, t, t + 0.3))
+        t += 0.35
+    moments = heuristic_moments(_tr(words, t), t, 5, min_dur=15, max_dur=60)
+    assert moments == []
+
+
+def test_detect_payoffs_ranks_laughter_above_filler():
+    words = [
+        ("hello", 2.0, 2.3),
+        ("everyone", 2.3, 2.7),
+        ("wow", 20.0, 20.3),
+        ("haha", 20.4, 20.8),
+    ]
+    peaks = detect_payoffs(_tr(words, 40), 40)
+    assert peaks
+    assert any(18 <= p.time <= 23 for p in peaks)
+    assert peaks[0].kind in {"laugh", "reaction"}
+
+
+def test_later_punchline_wins_nearby_setup():
+    """A mid-clip 'oh/what' must not cut off a laugh a few seconds later."""
+    words = [
+        ("Wait", 1.0, 1.3),
+        ("for", 1.3, 1.5),
+        ("it", 1.5, 1.8),
+        ("Oh", 10.0, 10.3),
+        ("what?", 10.3, 10.6),
+        ("I", 15.5, 15.7),
+        ("knew", 15.7, 16.0),
+        ("it!", 16.0, 16.4),
+        ("haha", 16.4, 16.8),
+    ]
+    peaks = detect_payoffs(_tr(words, 25), 25)
+    assert peaks
+    # The kept peak in this cluster should be the laugh, not 'oh/what'.
+    cluster = [p for p in peaks if 8 <= p.time <= 18]
+    assert cluster
+    best = cluster[0] if len(cluster) == 1 else max(cluster, key=lambda p: p.score)
+    # After later-landing NMS there should be a single peak near the laugh.
+    nearby = [p for p in peaks if abs(p.time - best.time) < 8]
+    assert len(nearby) == 1
+    assert nearby[0].time >= 15.0

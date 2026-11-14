@@ -43,3 +43,32 @@ def test_build_ass_writes_hook_and_words(tmp_path: Path):
     assert "PlayResY: 1920" in text
     # Active word is highlighted in yellow-ish ASS colour
     assert r"\c&H0000E5FF&" in text
+
+
+def test_static_banner_lasts_the_clip_and_colours_keywords(tmp_path: Path):
+    words = [Word("Hello", 0.2, 0.5), Word("world!", 0.5, 0.9)]
+    tr = Transcript("Hello world!", "en", [], words, 8)
+    path = build_ass(
+        tr,
+        tmp_path / "b.ass",
+        hook="When Hello lands",
+        hook_keywords=["Hello"],
+        duration=8.0,
+        word_captions=True,
+    )
+    text = path.read_text(encoding="utf-8")
+    # Banner runs for the full clip, not a 2.8s teaser.
+    assert "0:00:08.00" in text or "0:00:08." in text
+    yellow = "{\\c&H0000E5FF&}Hello{\\r}"
+    assert yellow in text
+    assert "When" in text
+
+
+def test_word_captions_can_be_disabled(tmp_path: Path):
+    words = [Word("Hello", 0.2, 0.5), Word("world!", 0.5, 0.9)]
+    tr = Transcript("Hello world!", "en", [], words, 5)
+    path = build_ass(tr, tmp_path / "c.ass", hook="A title", word_captions=False, duration=5)
+    text = path.read_text(encoding="utf-8")
+    assert "A title" in text
+    # No default-style word events (hook is style Hook).
+    assert "Default,," not in text

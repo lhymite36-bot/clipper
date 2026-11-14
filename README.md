@@ -91,9 +91,17 @@ clipper SOURCE --count 5 --out clips
 | `--out`, `-o` | Output folder | `./clips` |
 | `--model` | Whisper size: `tiny`, `base`, `small`, `medium`, `large-v3` | `tiny` |
 | `--hook` | Hook text on every clip. If omitted, one is written per clip | auto |
-| `--style` | `auto`, `face`, `center`, or `blur` | `auto` |
+| `--preset` | Look: `auto`, `cinematic-edit`, `story-skit`, `sports-montage` | `auto` |
+| `--layout` | `auto`, `tight` 9:16 crop, 16:9 `bars`, or `blur` fill | `auto` |
+| `--grade` | `auto`, `none`, `moody`, `contrast`, `warm` | `auto` |
+| `--style` | Crop hint when the layout is tight: `auto`, `face`, `center`, `blur` | `auto` |
+| `--captions` | `auto` (words for speech, none for montages), `words`, `minimal`, `none` | `auto` |
+| `--music` | Optional royalty-free or user-supplied music bed (local file only) | unset |
 | `--min-duration` / `--max-duration` | Clip length in seconds | `15` / `60` |
 | `--no-captions` | Skip burned-in captions | off |
+| `--no-punch` | Skip the short zoom at the payoff | off |
+| `--no-loop` | Don't snap the out-point to a calm frame | off |
+| `--speed-ramps` | Force 1.5× / 0.5× sports ramps (off for story-skit) | off |
 | `--gemini-key` / `--groq-key` | Optional free LLM keys for smarter moment picks | unset |
 | `--ui` | Open the local web UI (http://127.0.0.1:8766) | |
 | `--selftest` | Check that FFmpeg and the app are installed | |
@@ -119,13 +127,27 @@ On Windows you can also save that `.env` at `%LOCALAPPDATA%\Clipper\.env`.
 
 ## How moment picking works without a key
 
-The local heuristic scores the video in half-second bins using:
+Clipper only keeps a clip when it can find a real payoff: a punchline, a laugh or reaction in the transcript, a loud spike, a scene change, or an action beat. It starts a little before the setup and **ends 2–4 seconds after that payoff**, so the peak sits in the last 30% of the clip. If it cannot find that many payoffs, it returns fewer clips rather than padding the count with dead air.
 
-- Word hits such as *wait*, *insane*, *haha*, *secret*, questions and exclamations
-- Loudness peaks (laughter and reactions are usually louder)
-- A small boost for the opening seconds
+Hooks are written from words that were actually spoken (or left off when there is no speech). It will not put a generic “WAIT FOR IT” on screen unless that phrase is in the transcript *and* a verified payoff lands in the last 30% of the clip.
 
-It then grows each peak to a 15–60 s window on sentence boundaries and drops overlaps.
+A short punch-in zoom hits at the payoff (disable with `--no-punch`).
+
+### Style presets
+
+Pick a look with `--preset`, or leave `auto` and Clipper will choose from the transcript and the frame:
+
+- **story-skit** — dialogue and sketches. Wide 16:9 picture stays letterboxed in a 9:16 frame, with a static curiosity-gap hook on the top bar, word-by-word captions, a light warm grade, and a punch-in at the payoff. No speed ramps (they would break lipsync).
+- **cinematic-edit** — letterboxed, moody/desaturated grade, hook on the bar, few or no captions.
+- **sports-montage** — full 9:16 subject-tracked crop, high-contrast grade, ~1.5× on dead time and ~0.5× slow-mo for 1–2 seconds on the peak, punch-in, minimal captions.
+
+Layout is picked automatically when you leave `--layout auto`: a tight 9:16 crop when the action is close or already vertical; a centered 16:9 picture with black bars (hook text sits on the bar) or a blurred fill when the source is wide.
+
+The hook is a **static banner** in the top ~20% (bold white sans-serif, one or two keywords in yellow, an emoji is ok). It reframes the clip as a curiosity gap — “When developers forget it's just a game”, “This man is richer than billionaires” — and must stay true to the payoff. Clipper will not invent a promise the clip doesn't deliver. Suggested titles follow the same rule, including a “Don't check the sound” option only when the payoff is really on the soundtrack.
+
+Each clip tries to **end on a calm frame** so it loops back to the start cleanly (`--no-loop` to keep the original out-point).
+
+You can mix in a music bed with `--music /path/to/track.mp3`. Use a file you have the rights to, or a royalty-free track — Clipper does not bundle copyrighted music. Cuts can snap to detected beats; the bed sits under the original audio.
 
 ## License
 

@@ -81,11 +81,17 @@ def create_app():
         count: int = Form(5),
         hook: str = Form(""),
         style: str = Form("auto"),
+        preset: str = Form("auto"),
+        layout: str = Form("auto"),
+        grade: str = Form("auto"),
         model: str = Form("tiny"),
         gemini_key: str = Form(""),
         groq_key: str = Form(""),
-        captions: str = Form("1"),
+        captions: str = Form("auto"),
+        punch: str = Form("1"),
+        loop: str = Form("1"),
         file: UploadFile | None = File(None),
+        music: UploadFile | None = File(None),
     ):
         job_id = uuid.uuid4().hex[:12]
         out_dir = Path.home() / "Clipper" / "jobs" / job_id
@@ -105,6 +111,23 @@ def create_app():
         if not source:
             raise HTTPException(400, "Provide a video URL or upload a file")
 
+        music_path = None
+        if music and music.filename:
+            dest_m = out_dir / "_work"
+            dest_m.mkdir(parents=True, exist_ok=True)
+            suffix = Path(music.filename).suffix or ".mp3"
+            saved_m = dest_m / f"music{suffix}"
+            data_m = await music.read()
+            if data_m:
+                saved_m.write_bytes(data_m)
+                music_path = str(saved_m)
+
+        cap = (captions or "auto").strip().lower()
+        if cap in {"0", "false", "off"}:
+            cap = "none"
+        elif cap in {"1", "true", "on"}:
+            cap = "auto"
+
         opts = {
             "out_dir": out_dir,
             "pipeline": {
@@ -112,9 +135,15 @@ def create_app():
                 "model": model or "tiny",
                 "hook": hook.strip() or None,
                 "style": style or "auto",
+                "preset": preset or "auto",
+                "layout": layout or "auto",
+                "grade": None if (grade or "auto") == "auto" else grade,
                 "gemini_key": gemini_key.strip() or None,
                 "groq_key": groq_key.strip() or None,
-                "captions": captions not in {"0", "false", "off"},
+                "captions": cap,
+                "punch": punch not in {"0", "false", "off"},
+                "loop": loop not in {"0", "false", "off"},
+                "music": music_path,
             },
         }
         with JOBS_LOCK:

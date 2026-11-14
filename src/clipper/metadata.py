@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from clipper.moments import Moment, _hook_from_text
+from clipper.moments import Moment, make_hook
 from clipper.transcribe import Transcript
 
 STOP = {
@@ -46,12 +46,18 @@ def fill_metadata(
     uploader: str = "",
 ) -> Moment:
     clip_text = transcript.text_in(moment.start, moment.end) or transcript.text
-    if not moment.hook:
-        moment.hook, auto_title = _hook_from_text(clip_text)
-        if not moment.title:
-            moment.title = auto_title
-    if not moment.title:
-        _, moment.title = _hook_from_text(clip_text)
+    auto_hook, auto_title = make_hook(
+        transcript,
+        moment.start,
+        moment.end,
+        peak=moment.peak,
+        peak_kind=moment.peak_kind,
+    )
+    # Honour an intentionally empty hook (no speech / no verified promise).
+    if moment.hook is None:
+        moment.hook = auto_hook
+    if not moment.title or moment.title.lower() in {"clip", "wait for it"}:
+        moment.title = auto_title if auto_title and auto_title.lower() != "clip" else (moment.hook.title() if moment.hook else (source_title or "Clip"))
     # Keep titles Shorts-friendly and punchy
     title = moment.title.strip()
     if source_title and source_title.lower() not in title.lower() and len(title) < 45:
@@ -94,15 +100,26 @@ def fill_metadata(
     return moment
 
 
-def render_sidecar(moment: Moment, index: int) -> str:
+def render_sidecar(moment: Moment, index: int, *, preset: str = "", layout: str = "") -> str:
     tags = " ".join(f"#{t.lstrip('#')}" for t in moment.hashtags)
+    options = ""
+    titles = list(getattr(moment, "title_options", None) or [])
+    if titles:
+        listed = "\n".join(f"- {t}" for t in titles)
+        options = f"Title options:\n{listed}\n\n"
+    extra = ""
+    if preset or layout:
+        extra = f"Preset: {preset or '-'}  Layout: {layout or '-'}\n"
     return (
         f"Title:\n{moment.title}\n\n"
+        f"{options}"
         f"Description:\n{moment.description}\n\n"
         f"Hashtags:\n{tags}\n\n"
         f"Hook:\n{moment.hook}\n\n"
         f"Timestamp: {moment.start:.2f}s – {moment.end:.2f}s ({moment.duration:.1f}s)\n"
+        f"Peak: {'' if moment.peak is None else f'{moment.peak:.2f}s'} {moment.peak_kind}\n"
         f"Why this moment: {moment.reason}\n"
         f"Picked by: {moment.source}\n"
+        f"{extra}"
         f"Clip index: {index}\n"
     )
