@@ -125,7 +125,7 @@ def render_clip(
             hook_keywords=keywords,
             hook_margin_v=layout.hook_margin_v,
             caption_margin_v=layout.caption_margin_v,
-            hook_font_size=68 if layout.mode == "bars" else 64,
+            hook_font_size=96 if layout.mode == "bars" else 82,
             word_captions=word_captions,
             duration=duration,
             time_map=time_map,
@@ -179,10 +179,10 @@ def render_clip(
             mix = audio_mix_filter(volume=music_volume, duration=out_dur)
             mix = mix.replace("[0:a]", f"[{a_lab}]")
             parts.append(mix)
-            maps += ["-map", "[aout]"]
+            a_lab = "aout"
             log(f"Mixing music bed ({music_path.name})")
-        else:
-            maps += ["-map", f"[{a_lab}]"]
+        parts.append(f"[{a_lab}]{LOUDNORM}[anorm]")
+        maps += ["-map", "[anorm]"]
 
         args = [
             ffmpeg, "-y",
@@ -191,7 +191,7 @@ def render_clip(
             *extra_inputs,
             "-filter_complex", ";".join(parts),
             *maps,
-            *_encode_tail(out_dur),
+            *_encode_tail(out_dur, af=False),
             str(dest),
         ]
         log(f"Encoding {dest.name}…")
@@ -202,10 +202,18 @@ def render_clip(
     return dest
 
 
-def _encode_tail(duration: float) -> list[str]:
-    return [
+# YouTube-friendly loudness. TP=-1.5 avoids the 0 dBFS clipping common
+# in source files; I=-14 matches YouTube's integrated target.
+LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.84:level=false"
+
+
+def _encode_tail(duration: float, *, af: bool = True) -> list[str]:
+    args = [
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-pix_fmt", "yuv420p", "-profile:v", "high", "-level", "4.2",
         "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-ar", "44100",
         "-movflags", "+faststart", "-t", f"{duration:.3f}",
     ]
+    if af:
+        args = ["-af", LOUDNORM, *args]
+    return args

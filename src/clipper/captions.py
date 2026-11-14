@@ -94,7 +94,7 @@ YCbCr Matrix: TV.709
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,{body_font},78,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,2,70,70,{caption_margin_v},1
-Style: Hook,{hook_font},{hook_size},{hook_colour},&H000000FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,6,0,8,70,70,{hook_margin_v},1
+Style: Hook,{hook_font},{hook_size},{hook_colour},&H000000FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,7,1,8,64,64,{hook_margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -116,6 +116,31 @@ def _phrase_line(group: list[Word], active_index: int) -> str:
             out += " "
         out += token
     return out
+
+
+def wrap_hook(text: str, max_chars: int = 26, max_lines: int = 2) -> str:
+    """Split a long hook onto two lines near the midpoint (viral Shorts style)."""
+    text = " ".join((text or "").split())
+    if max_lines < 2 or len(text) <= max_chars:
+        return text
+    mid = len(text) / 2
+    best = None
+    best_score = 1e9
+    for i, ch in enumerate(text):
+        if ch != " " or i < 4 or i > len(text) - 4:
+            continue
+        left, right = text[:i], text[i + 1 :]
+        if not left or not right:
+            continue
+        # Prefer a break close to the middle, slightly early so the top line
+        # isn't longer than the bottom.
+        score = abs(i - mid) + (4 if i > mid + 2 else 0)
+        if score < best_score:
+            best_score = score
+            best = (left, right)
+    if not best:
+        return text
+    return best[0] + "\n" + best[1]
 
 
 def build_ass(
@@ -140,7 +165,7 @@ def build_ass(
     output timeline (used for speed ramps).
     """
     body_font = "Montserrat ExtraBold"
-    hook_font = "Montserrat ExtraBold"
+    hook_font = "Anton"
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -170,25 +195,31 @@ def build_ass(
     if hook and hook.strip():
         from clipper.style import colorize_keywords
 
-        text = colorize_keywords(_esc(hook.strip()), hook_keywords or [])
-        # Tiny fade so the first frame isn't a hard pop, then it stays.
+        wrapped = wrap_hook(hook.strip())
+        text = colorize_keywords(_esc(wrapped), hook_keywords or [])
+        # No fade-in: the first frame is the Shorts thumbnail, so the hook
+        # has to be fully visible at t=0.
         lines.append(
-            f"Dialogue: 1,0:00:00.00,{_ass_time(banner_end)},Hook,,0,0,0,,{{\\fad(80,0)}}{text}\n"
+            f"Dialogue: 1,0:00:00.00,{_ass_time(banner_end)},Hook,,0,0,0,,{text}\n"
         )
 
     if word_captions:
         groups = group_words(transcript.words)
         for group in groups:
+            cursor = 0.0
             for i, w in enumerate(group):
-                start = max(0.0, w.start)
+                start = max(0.0, cursor, w.start)
                 if i + 1 < len(group):
                     end = max(start + 0.05, group[i + 1].start)
                 else:
                     end = max(start + 0.12, w.end + 0.08)
+                if end <= start:
+                    end = start + 0.05
                 text = _phrase_line(group, i)
                 lines.append(
                     f"Dialogue: 0,{_ass_time(_t(start))},{_ass_time(_t(end))},Default,,0,0,0,,{text}\n"
                 )
+                cursor = end
 
     dest.write_text("".join(lines), encoding="utf-8")
     return dest

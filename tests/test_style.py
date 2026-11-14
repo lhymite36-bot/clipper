@@ -53,6 +53,11 @@ def test_layout_auto_letterbox_for_wide_and_tight_for_vertical():
     plan = plan_layout(1920, 1080, preferred="auto")
     assert plan.mode == "bars"
     assert "pad=1080:1920" in plan.vf
+    # Hook lives in a compact top bar, not a vertically-centred letterbox.
+    assert 360 <= plan.top_bar <= 480
+    assert plan.hook_margin_v >= 150
+    assert plan.hook_margin_v <= plan.top_bar - 80
+    assert f":{plan.top_bar}:black" in plan.vf
     tight = plan_layout(1080, 1920, preferred="auto")
     assert tight.mode == "tight"
     assert tight.top_bar >= 300  # hook lives in the top ~20%

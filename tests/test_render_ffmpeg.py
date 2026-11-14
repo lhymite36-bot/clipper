@@ -92,3 +92,15 @@ def test_render_with_punch_in(tmp_path: Path):
     assert dest.is_file() and dest.stat().st_size > 10_000
     w, h = probe_size(dest)
     assert (w, h) == (1080, 1920)
+
+
+
+def test_encode_tail_includes_loudnorm():
+    from clipper.render import LOUDNORM, _encode_tail
+
+    args = _encode_tail(16.0)
+    assert "-af" in args
+    assert LOUDNORM in args
+    assert "TP=-1.5" in LOUDNORM
+    no_af = _encode_tail(16.0, af=False)
+    assert "-af" not in no_af
