@@ -1,0 +1,11 @@
+Sample clips were generated on 2026-11-14 from a 90-second excerpt
+(00:00:30–00:02:00) of Big Buck Bunny by the Blender Foundation.
+
+License: Creative Commons Attribution 3.0
+https://creativecommons.org/licenses/by/3.0/us/
+https://archive.org/details/BigBuckBunny_328
+https://peach.blender.org/about/
+
+The source excerpt has almost no spoken dialogue, so Clipper used the
+local loudness heuristic and burned in an auto hook ("WAIT FOR IT").
+Each file is 1080x1920 H.264 + AAC, ready to upload as a YouTube Short.

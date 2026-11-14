@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clipper</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div class="logo">Clipper</div>
+      <p class="tag">Turn a long video into vertical YouTube Shorts. Free, local, no paid APIs.</p>
+    </header>
+
+    <form id="form" class="card">
+      <label>YouTube or video URL
+        <input type="url" id="url" name="url" placeholder="https://www.youtube.com/watch?v=…" />
+      </label>
+      <label>Or a local file
+        <input type="file" id="file" name="file" accept="video/*,.mp4,.mkv,.webm,.mov" />
+      </label>
+      <div class="row">
+        <label>Clips
+          <input type="number" id="count" name="count" min="1" max="20" value="5" />
+        </label>
+        <label>Style
+          <select id="style" name="style">
+            <option value="auto" selected>Auto (face, then blur)</option>
+            <option value="face">Face crop</option>
+            <option value="center">Center crop</option>
+            <option value="blur">Blurred background</option>
+          </select>
+        </label>
+        <label>Whisper model
+          <select id="model" name="model">
+            <option value="tiny" selected>tiny (fast)</option>
+            <option value="base">base</option>
+            <option value="small">small</option>
+          </select>
+        </label>
+      </div>
+      <label>Hook text on every clip (optional)
+        <input type="text" id="hook" name="hook" maxlength="60" placeholder="Leave blank to auto-write one" />
+      </label>
+      <details>
+        <summary>Optional free API keys (Gemini or Groq). Leave blank to use the local heuristic.</summary>
+        <label>Gemini API key
+          <input type="password" id="gemini" name="gemini_key" autocomplete="off" />
+        </label>
+        <label>Groq API key
+          <input type="password" id="groq" name="groq_key" autocomplete="off" />
+        </label>
+      </details>
+      <label class="check"><input type="checkbox" id="captions" checked /> Burn in word-by-word captions</label>
+      <button type="submit" id="go">Make clips</button>
+    </form>
+
+    <section id="progress" class="card hidden">
+      <div class="status" id="status">Starting…</div>
+      <pre id="log"></pre>
+    </section>
+
+    <section id="results" class="hidden"></section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
