@@ -6,7 +6,7 @@ def test_parser_defaults():
     args = build_parser().parse_args(["https://youtu.be/dQw4w9wgWcQ", "--count", "5"])
     assert args.source.startswith("https://")
     assert args.count == 5
-    assert args.model == "tiny"
+    assert args.model == "small"
     assert args.style == "auto"
     assert args.min_duration == 15
     assert args.max_duration == 60

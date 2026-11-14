@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog=_prog(),
         description=(
             "Turn a long YouTube video or a local file into vertical YouTube Shorts "
-            "with captions, a hook, and suggested titles."
+            "with captions, a hook, and suggested titles. Use `clipper recap` for a movie-recap voiceover."
         ),
         epilog="Example: clip https://youtu.be/VIDEO --count 5 --out clips",
     )
@@ -35,8 +35,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", "-o", default="clips", help="Output folder (default: ./clips)")
     parser.add_argument(
         "--model",
-        default="tiny",
-        help="faster-whisper model: tiny (default, free & fast), base, small, medium, large-v3",
+        default="small",
+        help="faster-whisper model: small (default, more accurate), base, tiny, medium, large-v3",
+    )
+    parser.add_argument(
+        "--language",
+        default="auto",
+        help="Whisper language (default: auto, with an English auto-fix for Latin-heavy audio)",
+    )
+    parser.add_argument(
+        "--brief",
+        default=None,
+        help="Campaign brief text or path (source, duration, hook rules, geo)",
     )
     parser.add_argument("--hook", default=None, help="Optional hook text shown at the top of every clip")
     parser.add_argument(
@@ -53,9 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--layout",
-        choices=["auto", "tight", "bars", "blur"],
+        choices=["auto", "tight", "bars", "blur", "fill"],
         default="auto",
-        help="Frame layout: tight 9:16 crop, 16:9 letterbox bars, or blur fill (default: auto)",
+        help="Frame layout: tight crop, 16:9 bars, blur, or fill (blur background + sharp 16:9 under the hook)",
     )
     parser.add_argument(
         "--grade",
@@ -72,13 +82,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--music",
         default=None,
-        help="Optional royalty-free or user-supplied music bed (local file only)",
+        help="Optional copyright-safe music bed (a local file you have rights to)",
     )
+    parser.add_argument("--music-dir", default=None, help="Folder of copyright-safe tracks (YouTube Audio Library, CC0, CC BY)")
+    parser.add_argument("--sounds-dir", default=None, help="Optional 'my sounds' folder of audio you have rights to")
+    parser.add_argument("--auto-music", action="store_true", default=None, help="Auto-pick a copyright-safe bed (default on)")
+    parser.add_argument("--no-music", action="store_true", help="Skip background music")
+    parser.add_argument("--sfx", action="store_true", default=None, help="Add stock whoosh/impact/riser SFX (default on)")
+    parser.add_argument("--no-sfx", action="store_true", help="Skip stock SFX")
+    parser.add_argument("--enqueue", action="store_true", default=None, help="Add clips to the review queue (default on)")
+    parser.add_argument("--no-enqueue", action="store_true", help="Don't add clips to the publish queue")
     parser.add_argument(
         "--music-volume",
         type=float,
-        default=0.22,
-        help="Music bed volume 0–1 (default: 0.22, under the original audio)",
+        default=0.16,
+        help="Music bed volume 0–1 (default: 0.16, ducked under speech)",
     )
     parser.add_argument("--no-loop", action="store_true", help="Don't snap the out-point to a calm looping frame")
     parser.add_argument("--speed-ramps", action="store_true", help="Force sports-style speed ramps (off for story-skit by default)")
@@ -144,12 +162,31 @@ def selftest() -> int:
         print(f"FAIL: clip should end after the payoff ({m.end} vs peak {m.peak})")
         return 1
     print(f"heuristic: {len(moments)} moment(s) ok (peak {m.peak:.1f}s, hook {m.hook!r})")
+    from clipper.recap_script import write_script
+
+    script = write_script("Sintel", tr, fmt="short", spoilers=False, llm=False)
+    if not script.lines or not script.hook:
+        print("FAIL: recap fallback script was empty")
+        return 1
+    if "wait for it" in script.hook.lower():
+        print("FAIL: recap hook looked generic")
+        return 1
+    print(f"recap script: {len(script.lines)} line(s), hook {script.hook!r}")
     print("OK")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in {"recap", "recapper"}:
+        from clipper.recap import main as recap_main
+
+        return recap_main(argv[1:])
+    if argv and argv[0] in {"queue", "approve", "reject", "publish"}:
+        from clipper.publish import cli_main
+
+        return cli_main(argv)
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -169,11 +206,21 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         captions = "none" if args.no_captions else args.captions
+        auto_music = False if args.no_music else True
+        if args.auto_music:
+            auto_music = True
+        sfx = False if args.no_sfx else True
+        if args.sfx:
+            sfx = True
+        enqueue = False if args.no_enqueue else True
+        if args.enqueue:
+            enqueue = True
         results = run_pipeline(
             args.source,
             args.out,
             count=args.count,
             model=args.model,
+            language=args.language,
             hook=args.hook,
             style=args.style,
             min_dur=args.min_duration,
@@ -188,6 +235,12 @@ def main(argv: list[str] | None = None) -> int:
             grade=None if args.grade == "auto" else args.grade,
             music=args.music,
             music_volume=args.music_volume,
+            music_dir=args.music_dir,
+            sounds_dir=args.sounds_dir,
+            auto_music=auto_music,
+            sfx=sfx,
+            enqueue=enqueue,
+            brief=args.brief,
             loop=not args.no_loop,
             speed_ramps=True if args.speed_ramps else None,
             progress=print,

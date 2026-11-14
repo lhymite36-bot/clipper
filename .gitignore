@@ -30,3 +30,13 @@ jobs/
 .api_key
 /.models/
 models/
+
+samples/recap/*.mp4
+samples/recap/*.ass
+samples/recap/*.wav
+samples/recap/*.json
+samples/recap/0*.txt
+samples/recap/*-short.txt
+samples/recap/*-long.txt
+!samples/recap/SOURCE.txt
+!samples/recap/README.md

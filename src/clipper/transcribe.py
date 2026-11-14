@@ -91,6 +91,31 @@ def _join_words(parts: list[str]) -> str:
     return out.strip()
 
 
+LATIN_HINT = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'")
+
+
+def looks_english(text: str) -> bool:
+    """True when the transcript is mostly Latin letters (English / Hinglish captions)."""
+    letters = [c for c in (text or "") if c.isalpha() or c in "'"]
+    if len(letters) < 8:
+        return False
+    latin = sum(1 for c in letters if c in LATIN_HINT)
+    return latin / max(1, len(letters)) >= 0.7
+
+
+def resolve_language(requested: str | None, detected: str | None, text: str = "") -> str:
+    """Honour an explicit language; in auto mode, prefer English when the text is Latin."""
+    req = (requested or "auto").strip().lower()
+    det = (detected or "").strip().lower() or "en"
+    if req and req not in {"auto", "detect", ""}:
+        return req
+    if det in {"en", "eng"}:
+        return "en"
+    if looks_english(text):
+        return "en"
+    return det
+
+
 def default_model_dir() -> Path:
     if os.name == "nt":
         root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
@@ -102,9 +127,10 @@ def transcribe(
     video: Path | str,
     workdir: Path,
     *,
-    model_size: str = "tiny",
+    model_size: str = "small",
     device: str = "cpu",
     compute_type: str | None = None,
+    language: str | None = "auto",
     progress=None,
 ) -> Transcript:
     log = progress or (lambda *_a, **_k: None)
@@ -137,37 +163,52 @@ def transcribe(
     from clipper.audio_peaks import load_mono_f32
 
     audio = load_mono_f32(wav, rate=16000)
-    segments_iter, info = model.transcribe(
-        audio,
-        word_timestamps=True,
-        vad_filter=True,
-        beam_size=1,
-    )
+    lang = (language or "auto").strip().lower()
+    transcribe_kw = dict(word_timestamps=True, vad_filter=True, beam_size=1)
+    if lang and lang not in {"auto", "detect", ""}:
+        transcribe_kw["language"] = lang
+        log(f"Forcing language={lang}")
+    def _consume(segments_iter, info, silent=False):
+        segments: list[Segment] = []
+        words: list[Word] = []
+        texts: list[str] = []
+        last_end = 0.0
+        for seg in segments_iter:
+            seg_words = []
+            for w in seg.words or []:
+                token = (w.word or "").strip()
+                if not token:
+                    continue
+                ww = Word(word=token, start=float(w.start), end=float(w.end), probability=float(w.probability or 1.0))
+                seg_words.append(ww)
+                words.append(ww)
+                last_end = max(last_end, ww.end)
+            text = (seg.text or "").strip()
+            texts.append(text)
+            segments.append(Segment(start=float(seg.start), end=float(seg.end), text=text, words=seg_words))
+            last_end = max(last_end, float(seg.end))
+            if not silent:
+                log(f"  [{seg.start:7.1f}–{seg.end:7.1f}] {text}")
+        detected = getattr(info, "language", None) or "en"
+        body = " ".join(x for x in texts if x).strip()
+        duration = float(getattr(info, "duration", 0) or last_end)
+        return segments, words, body, detected, duration
 
-    segments: list[Segment] = []
-    words: list[Word] = []
-    texts: list[str] = []
-    last_end = 0.0
-    for seg in segments_iter:
-        seg_words = []
-        for w in seg.words or []:
-            token = (w.word or "").strip()
-            if not token:
-                continue
-            ww = Word(word=token, start=float(w.start), end=float(w.end), probability=float(w.probability or 1.0))
-            seg_words.append(ww)
-            words.append(ww)
-            last_end = max(last_end, ww.end)
-        text = (seg.text or "").strip()
-        texts.append(text)
-        segments.append(Segment(start=float(seg.start), end=float(seg.end), text=text, words=seg_words))
-        last_end = max(last_end, float(seg.end))
-        log(f"  [{seg.start:7.1f}–{seg.end:7.1f}] {text}")
-
-    language = getattr(info, "language", None) or "en"
-    duration = float(getattr(info, "duration", 0) or last_end)
+    segments_iter, info = model.transcribe(audio, **transcribe_kw)
+    segments, words, body, detected, duration = _consume(segments_iter, info)
+    language = resolve_language(language, detected, body)
+    if (
+        language == "en"
+        and detected not in {"en", "eng"}
+        and looks_english(body)
+        and lang in {"auto", "detect", ""}
+    ):
+        log(f"Language auto-fix: detected {detected}, re-running Whisper in English for clearer captions…")
+        segments_iter, info = model.transcribe(audio, language="en", word_timestamps=True, vad_filter=True, beam_size=1)
+        segments, words, body, detected, duration = _consume(segments_iter, info)
+        language = "en"
     transcript = Transcript(
-        text=" ".join(t for t in texts if t).strip(),
+        text=body,
         language=language,
         segments=segments,
         words=words,

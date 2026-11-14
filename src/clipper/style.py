@@ -195,7 +195,7 @@ def choose_layout_mode(
     tight_subject: bool = False,
 ) -> str:
     preferred = (preferred or "auto").lower()
-    if preferred in {"tight", "bars", "blur"}:
+    if preferred in {"tight", "bars", "blur", "fill"}:
         return preferred
     aspect = src_w / max(src_h, 1)
     # Close-up / already-vertical / a clearly tracked subject → fill the frame.
@@ -203,9 +203,10 @@ def choose_layout_mode(
         return "tight"
     if has_face and aspect <= 1.2:
         return "tight"
-    # Wide footage (typical 16:9) keeps the full picture and puts the hook on a bar.
+    # Wide footage: blur-fill the 9:16 frame and keep a sharp 16:9 picture
+    # under a compact hook bar, so the frame isn't mostly black.
     if aspect >= 1.3:
-        return "bars"
+        return "fill"
     return "tight"
 
 
@@ -221,6 +222,21 @@ def plan_layout(
     mode = choose_layout_mode(
         src_w, src_h, preferred=preferred, has_face=bool(face), tight_subject=tight_subject
     )
+    if mode == "fill":
+        # Hook bar on top, blurred 9:16 background, sharp 16:9 picture under the hook.
+        top = BARS_HOOK_BAR
+        natural = int(round(TARGET_W * src_h / max(src_w, 1)))
+        # Mild zoom so the 16:9 picture fills more of the frame under the hook.
+        max_h = TARGET_H - top - 120
+        pic_h = min(max_h, int(natural * 1.5) // 2 * 2)
+        y = top + 16
+        bottom = max(0, TARGET_H - y - pic_h)
+        # vf is a token; render.py expands it into a filter_complex graph.
+        vf = f"FILL:{top}:{y}:{pic_h}"
+        hook_margin = YT_TOP_SAFE
+        caption_margin = bottom + 36
+        return LayoutPlan(mode, vf, top, bottom, hook_margin, caption_margin)
+
     if mode == "bars":
         # Fit the full picture at 1080 wide. Pin it under a compact hook bar
         # (~21%) so the banner isn't lost in a vertically-centred letterbox.
@@ -258,7 +274,7 @@ def grade_filter(name: str | None) -> str:
 
 def hook_bar_filter(layout: LayoutPlan) -> str:
     """Full-width black bar behind the hook when the picture itself is 9:16."""
-    if layout.mode != "tight" or layout.top_bar <= 0:
+    if layout.mode not in {"tight", "fill"} or layout.top_bar <= 0:
         return ""
     h = int(layout.top_bar)
     return f"drawbox=0:0:{TARGET_W}:{h}:black@0.88:t=fill"
@@ -595,9 +611,11 @@ def suggest_titles(hook: str, *, peak_kind: str = "", has_speech: bool = True) -
             and not base.lower().startswith(("what ", "why ", "how ", "who ", "is ", "are "))
         ):
             titles.append("When " + base[0].lower() + base[1:] if base[0].isupper() else "When " + base)
-    if peak_kind in {"laugh", "loud"} and has_speech:
-        # Only when the payoff really is on the soundtrack.
-        titles.append("Don't check the sound")
+    if has_speech:
+        from clipper.metadata import is_sound_payoff
+
+        if is_sound_payoff(peak_kind, hook, hook):
+            titles.append("Don't check the sound")
     # Dedup, keep order, cap length.
     out, seen = [], set()
     for t in titles:

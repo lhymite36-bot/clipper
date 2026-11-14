@@ -217,7 +217,7 @@ def _gemini(prompt: str, key: str) -> str | None:
     for model in GEMINI_MODELS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
-            with httpx.Client(timeout=45.0) as client:
+            with httpx.Client(timeout=90.0) as client:
                 r = client.post(
                     url,
                     params={"key": key},
@@ -273,6 +273,69 @@ def _groq(prompt: str, key: str) -> str | None:
                 return text
         except Exception:  # noqa: BLE001 — soft fail
             continue
+    return None
+
+
+def complete_json(prompt: str, *, gemini_key: str | None = None, groq_key: str | None = None) -> dict | None:
+    """Ask the free-tier LLM for a JSON object. Returns None on any failure."""
+    gemini, groq = load_keys(gemini_key, groq_key)
+    text = _gemini(prompt, gemini) if gemini else None
+    if not text and groq:
+        text = _groq(prompt, groq)
+    if not text:
+        return None
+    data = _extract_json(text)
+    return data if isinstance(data, dict) and data else None
+
+
+def complete_text(prompt: str, *, gemini_key: str | None = None, groq_key: str | None = None) -> str | None:
+    """Free-tier text completion (no JSON requirement)."""
+    gemini, groq = load_keys(gemini_key, groq_key)
+    # Temporarily allow plain text from Gemini by a local one-off call.
+    if gemini:
+        last_err = None
+        for model in GEMINI_MODELS:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            try:
+                with httpx.Client(timeout=90.0) as client:
+                    r = client.post(
+                        url,
+                        params={"key": gemini},
+                        json={
+                            "contents": [{"parts": [{"text": prompt}]}],
+                            "generationConfig": {"temperature": 0.6},
+                        },
+                    )
+                if r.status_code >= 400:
+                    last_err = r.status_code
+                    continue
+                parts = r.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                text = "".join(p.get("text", "") for p in parts).strip()
+                if text:
+                    return text
+            except Exception:
+                continue
+        _ = last_err
+    if groq:
+        for model in GROQ_MODELS:
+            try:
+                with httpx.Client(timeout=90.0) as client:
+                    r = client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {groq}", "Content-Type": "application/json"},
+                        json={
+                            "model": model,
+                            "temperature": 0.6,
+                            "messages": [{"role": "user", "content": prompt}],
+                        },
+                    )
+                if r.status_code >= 400:
+                    continue
+                text = (r.json().get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+                if text:
+                    return text
+            except Exception:
+                continue
     return None
 
 

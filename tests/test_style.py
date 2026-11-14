@@ -48,16 +48,18 @@ def test_pick_preset_sports_when_little_speech():
 
 
 def test_layout_auto_letterbox_for_wide_and_tight_for_vertical():
-    assert choose_layout_mode(1920, 1080, preferred="auto", has_face=False) == "bars"
+    assert choose_layout_mode(1920, 1080, preferred="auto", has_face=False) == "fill"
     assert choose_layout_mode(1080, 1920, preferred="auto", has_face=False) == "tight"
     plan = plan_layout(1920, 1080, preferred="auto")
-    assert plan.mode == "bars"
-    assert "pad=1080:1920" in plan.vf
-    # Hook lives in a compact top bar, not a vertically-centred letterbox.
+    assert plan.mode == "fill"
+    assert plan.vf.startswith("FILL:")
+    # Hook lives in a compact top bar; sharp 16:9 sits under it.
     assert 360 <= plan.top_bar <= 480
     assert plan.hook_margin_v >= 150
-    assert plan.hook_margin_v <= plan.top_bar - 80
-    assert f":{plan.top_bar}:black" in plan.vf
+    bars = plan_layout(1920, 1080, preferred="bars")
+    assert bars.mode == "bars"
+    assert "pad=1080:1920" in bars.vf
+    assert f":{bars.top_bar}:black" in bars.vf
     tight = plan_layout(1080, 1920, preferred="auto")
     assert tight.mode == "tight"
     assert tight.top_bar >= 300  # hook lives in the top ~20%
@@ -122,8 +124,10 @@ def test_titles_dont_promise_sound_unless_audio_payoff():
     titles = suggest_titles("When the setup lands", peak_kind="action", has_speech=True)
     assert all("don't check the sound" not in t.lower() for t in titles)
     laugh = suggest_titles("I knew it", peak_kind="laugh", has_speech=True)
-    assert any(t.lower() == "don't check the sound" for t in laugh)
+    assert all("don't check the sound" not in t.lower() for t in laugh)
     assert "I knew it" in laugh or any("knew" in t.lower() for t in laugh)
+    sound = suggest_titles("Don't miss this sound", peak_kind="loud", has_speech=True)
+    assert any(t.lower() == "don't check the sound" for t in sound)
     questions = suggest_titles("What can I do?", peak_kind="reaction", has_speech=True)
     assert all(not t.lower().startswith("when what") for t in questions)
     assert any("what can i do" in t.lower() for t in questions)
