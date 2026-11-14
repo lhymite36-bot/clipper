@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog=_prog(),
         description=(
             "Turn a long YouTube video or a local file into vertical YouTube Shorts "
-            "with captions, a hook, and suggested titles. Use `clipper recap` for a movie-recap voiceover."
+            "with captions, a hook, and suggested titles. Use `clipper recap` for a movie-recap voiceover, or `clipper find` to pull new videos from watched sources."
         ),
         epilog="Example: clip https://youtu.be/VIDEO --count 5 --out clips",
     )
@@ -186,6 +186,10 @@ def main(argv: list[str] | None = None) -> int:
         from clipper.publish import cli_main
 
         return cli_main(argv)
+    if argv and argv[0] in {"find", "sources", "watch", "autofind"}:
+        from clipper.autofind import main as find_main
+
+        return find_main(argv[1:])
 
     parser = build_parser()
     args = parser.parse_args(argv)

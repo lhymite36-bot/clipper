@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Clipper" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:statusBarColor">#FF0E0F14</item>
+        <item name="android:navigationBarColor">#FF0E0F14</item>
+    </style>
+</resources>

@@ -75,6 +75,7 @@ def enqueue(
         **{k: clip.get(k) for k in (
             "path", "sidecar", "title", "description", "hashtags", "hook",
             "preset", "layout", "index",
+            "source_url", "source_label", "license", "found_by", "kind",
         )},
     }
     items.append(item)

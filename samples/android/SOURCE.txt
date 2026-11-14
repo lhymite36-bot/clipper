@@ -1,0 +1,5 @@
+Sample source: a generated 16:9 test pattern (ffmpeg testsrc + sine), used because the usual AIB CC BY 3.0 source was unavailable at render time.
+
+The MP4 was rendered by the same Kotlin pipeline the Android app uses (`android/pipeline`, gradle :pipeline:runSample). Music is an original generated bed — Clipper never rips audio from YouTube.
+
+Hook, captions, 1080x1920 fill layout (blurred 9:16 backdrop + sharp 16:9), and a draft-only queue sidecar with source/licence fields were checked on the frames.

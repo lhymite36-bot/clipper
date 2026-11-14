@@ -1,0 +1,21 @@
+{
+  "kind": "CLIP",
+  "description": "Wait what just happened never seen before boom\n#wait #what #happened #never #seen\nLicence: generated (no third-party footage)",
+  "created_at": "2026-11-14T20:11:32.782327217Z",
+  "title": "Wait what just happened never seen before boom",
+  "duration_sec": 12,
+  "tags": [
+    "#wait",
+    "#what",
+    "#happened",
+    "#never",
+    "#seen"
+  ],
+  "path": "/tmp/clipper-android-sample/jobs/clip-1794687048828-0/clip.mp4",
+  "license": "generated (no third-party footage)",
+  "hook": "Wait what just happened never seen before boom",
+  "source_label": "Generated 16:9 test pattern",
+  "id": "21df4659-a",
+  "found_by": "sample",
+  "status": "pending_review"
+}

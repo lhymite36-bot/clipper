@@ -192,6 +192,44 @@
 
     <section id="results" class="hidden"></section>
 
+
+    <section id="autofind-card" class="card">
+      <h2>Auto-find sources</h2>
+      <p class="hint">Clipper can pull videos by itself. Save YouTube channels, playlists, or campaign/brief links (Content Rewards, Vyro, Clipster, IndClip-style), search by keyword (optional Creative Commons only), or look up a movie trailer by title for Recap. New items are clipped or recapped into the review queue. Nothing posts unless Autopilot is on.</p>
+      <div class="row">
+        <label>Kind
+          <select id="source-kind">
+            <option value="channel">YouTube channel</option>
+            <option value="playlist">Playlist</option>
+            <option value="brief">Campaign / brief link</option>
+            <option value="keyword">Keyword / trending</option>
+            <option value="trailer">Movie trailer (Recap)</option>
+          </select>
+        </label>
+        <label>URL, keyword, or title
+          <input type="text" id="source-query" placeholder="https://… or “funny skits” or “Sintel”" />
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="source-cc" /> Creative Commons only</label>
+      <label class="check"><input type="checkbox" id="source-recap" /> Treat new items as Recap jobs</label>
+      <p>
+        <button type="button" id="source-add">Save source</button>
+        <button type="button" id="source-run" class="secondary">Check now</button>
+        <span id="source-status" class="hint"></span>
+      </p>
+      <p class="hint" id="source-cap"></p>
+      <div id="source-list"><p class="hint">No sources yet.</p></div>
+      <div class="row">
+        <label>Daily cap
+          <input type="number" id="autofind_daily_cap" min="1" max="40" value="8" />
+        </label>
+        <label>Check every (hours)
+          <input type="number" id="autofind_interval_hours" min="1" max="24" value="6" />
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="autofind_enabled" /> Enable scheduled Auto-find on this computer</label>
+    </section>
+
     <section id="queue-card" class="card">
       <h2>Review queue</h2>
       <p class="hint">Clips stay here until you approve them. Draft-only is on by default, so even approved clips are sent as drafts unless you turn on autopilot.</p>

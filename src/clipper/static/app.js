@@ -180,6 +180,12 @@ async function loadSettings() {
   document.getElementById("autopilot").checked = !!s.autopilot;
   if (s.model) document.getElementById("model").value = s.model;
   if (s.language) document.getElementById("language").value = s.language;
+  const capEl = document.getElementById("autofind_daily_cap");
+  if (capEl) capEl.value = s.autofind_daily_cap || 8;
+  const intEl = document.getElementById("autofind_interval_hours");
+  if (intEl) intEl.value = s.autofind_interval_hours || 6;
+  const enEl = document.getElementById("autofind_enabled");
+  if (enEl) enEl.checked = !!s.autofind_enabled;
   const keys = [];
   if (s.has_gemini_key) keys.push("Gemini");
   if (s.has_groq_key) keys.push("Groq");
@@ -202,6 +208,9 @@ document.getElementById("save-settings").addEventListener("click", async () => {
     buffer_channel_id: document.getElementById("buffer_channel_id").value.trim(),
     draft_only: document.getElementById("draft_only").checked,
     autopilot: document.getElementById("autopilot").checked,
+    autofind_enabled: !!(document.getElementById("autofind_enabled") && document.getElementById("autofind_enabled").checked),
+    autofind_daily_cap: Number((document.getElementById("autofind_daily_cap") || {}).value) || 8,
+    autofind_interval_hours: Number((document.getElementById("autofind_interval_hours") || {}).value) || 6,
   };
   const res = await fetch("/api/settings", {
     method: "POST",
@@ -245,7 +254,7 @@ async function loadQueue() {
       <div>
         <strong>${escapeHtml(item.title || item.path || item.id)}</strong>
         <span class="pill">${escapeHtml(item.status)}</span>
-        <div class="hint">${escapeHtml(item.id)}${item.due_at ? " · due " + escapeHtml(item.due_at) : ""}${item.error ? " · " + escapeHtml(item.error) : ""}</div>
+        <div class="hint">${escapeHtml(item.id)}${item.due_at ? " · due " + escapeHtml(item.due_at) : ""}${item.error ? " · " + escapeHtml(item.error) : ""}${item.source_label ? " · source " + escapeHtml(item.source_label) : ""}${item.license ? " · licence " + escapeHtml(item.license) : ""}</div>
       </div>
       <div class="queue-actions">
         ${item.status === "pending_review" ? `<button type="button" data-act="approve" data-id="${item.id}">Approve</button>` : ""}
@@ -265,3 +274,83 @@ async function loadQueue() {
 
 loadSettings().catch(() => {});
 loadQueue().catch(() => {});
+
+
+async function loadSources() {
+  const box = document.getElementById("source-list");
+  const cap = document.getElementById("source-cap");
+  if (!box) return;
+  const res = await fetch("/api/sources");
+  const body = await res.json();
+  if (cap) cap.textContent = `Daily cap: ${body.used_today || 0}/${body.daily_cap || 8} used today (Asia/Calcutta). Remaining: ${body.remaining ?? 0}.`;
+  const sources = body.sources || [];
+  if (!sources.length) {
+    box.innerHTML = "<p class='hint'>No watched sources yet. Add a channel, playlist, brief link, keyword, or trailer title.</p>";
+    return;
+  }
+  box.innerHTML = sources.map((s) => {
+    const flags = [s.cc_only ? "CC-only" : "", s.recap ? "recap" : ""].filter(Boolean).join(", ");
+    return `<div class="queue-item">
+      <div>
+        <strong>${escapeHtml(s.label || s.query)}</strong>
+        <span class="pill">${escapeHtml(s.kind || "")}</span>
+        <div class="hint">${escapeHtml(s.query)}${flags ? " · " + escapeHtml(flags) : ""}</div>
+      </div>
+      <div class="queue-actions">
+        <button type="button" class="secondary" data-rm="${s.id}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll("button[data-rm]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      await fetch(`/api/sources/${btn.dataset.rm}/remove`, { method: "POST" });
+      loadSources();
+    });
+  });
+}
+
+const addBtn = document.getElementById("source-add");
+if (addBtn) {
+  addBtn.addEventListener("click", async () => {
+    const status = document.getElementById("source-status");
+    const query = document.getElementById("source-query").value.trim();
+    if (!query) {
+      status.textContent = "Add a URL, keyword, or title first.";
+      return;
+    }
+    const payload = {
+      kind: document.getElementById("source-kind").value,
+      query,
+      cc_only: document.getElementById("source-cc").checked,
+      recap: document.getElementById("source-recap").checked || document.getElementById("source-kind").value === "trailer",
+    };
+    const res = await fetch("/api/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    status.textContent = res.ok ? "Source saved." : "Could not save source.";
+    if (res.ok) document.getElementById("source-query").value = "";
+    loadSources();
+  });
+}
+const runBtn = document.getElementById("source-run");
+if (runBtn) {
+  runBtn.addEventListener("click", async () => {
+    const status = document.getElementById("source-status");
+    status.textContent = "Checking sources…";
+    runBtn.disabled = true;
+    try {
+      const res = await fetch("/api/find/run", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      const n = (body.items || []).length;
+      status.textContent = n ? `Queued ${n} new draft(s) for review.` : "Nothing new, or the daily cap is used.";
+      loadSources();
+      loadQueue();
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+}
+loadSources().catch(() => {});

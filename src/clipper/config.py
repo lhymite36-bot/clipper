@@ -38,6 +38,10 @@ DEFAULTS: dict[str, Any] = {
     "auto_music": True,
     "sfx": True,
     "enqueue": True,
+    "autofind_enabled": False,
+    "autofind_interval_hours": 6,
+    "autofind_daily_cap": 8,
+    "autofind_cc_only": False,
 }
 
 

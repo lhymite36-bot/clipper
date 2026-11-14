@@ -23,7 +23,23 @@ On Windows the system already has a `clip` command (it copies text to the clipbo
 clipper https://www.youtube.com/watch?v=VIDEO --count 5
 ```
 
+## Android (pre-release)
+
+A native Android app lives in [`android/`](android/README.md). It includes clipping, Movie Recap, a draft-only review queue, and Auto-find (the phone can pull new videos from watched channels, playlists, campaign/brief links, keyword search, or a trailer title). Install the `android-v1.2.0` **pre-release** APK; do not mark it Latest. Setup steps are in the Android README.
+
+On the desktop you can do the same Auto-find from the web UI or:
+
+```text
+clipper find add channel https://www.youtube.com/@SomeChannel
+clipper find add keyword "funny skits" --cc
+clipper find add trailer Sintel
+clipper find run
+```
+
+New drafts go to the review queue. Nothing posts unless Autopilot is on.
+
 ## What you need to know about rights
+
 
 Only clip videos you have the right to use: your own content, public-domain / Creative Commons videos (and follow the license, including credit), or a creator's official clipping program. Reposting someone else's video as Shorts can get the clip taken down.
 

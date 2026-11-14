@@ -357,6 +357,7 @@ def create_app():
             "model", "language", "draft_only", "autopilot", "publish_method",
             "schedule_times", "per_day", "github_repo", "buffer_channel_id",
             "buffer_organization_id", "youtube_privacy", "auto_music", "sfx", "enqueue",
+            "autofind_enabled", "autofind_interval_hours", "autofind_daily_cap", "autofind_cc_only",
         }
         updates = {k: v for k, v in (payload or {}).items() if k in allowed}
         save_settings(updates)
@@ -398,6 +399,51 @@ def create_app():
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(400, str(exc)) from exc
 
+
+    @app.get("/api/sources")
+    def get_sources():
+        from clipper.autofind import daily_cap, load_sources, remaining_today, used_today
+
+        return {
+            "sources": load_sources(),
+            "used_today": used_today(),
+            "daily_cap": daily_cap(),
+            "remaining": remaining_today(),
+        }
+
+    @app.post("/api/sources")
+    async def post_source(payload: dict):
+        from clipper.autofind import add_source, load_sources
+
+        kind = (payload or {}).get("kind") or "keyword"
+        query = ((payload or {}).get("query") or "").strip()
+        if not query:
+            raise HTTPException(400, "query is required")
+        item = add_source(
+            kind,
+            query,
+            label=(payload or {}).get("label"),
+            cc_only=bool((payload or {}).get("cc_only")),
+            recap=bool((payload or {}).get("recap")),
+        )
+        return {"source": item, "sources": load_sources()}
+
+    @app.post("/api/sources/{source_id}/remove")
+    def delete_source(source_id: str):
+        from clipper.autofind import load_sources, remove_source
+
+        ok = remove_source(source_id)
+        if not ok:
+            raise HTTPException(404, "Unknown source")
+        return {"ok": True, "sources": load_sources()}
+
+    @app.post("/api/find/run")
+    def run_find(discover_only: str = "0"):
+        from clipper.autofind import run_once
+
+        only = discover_only in {"1", "true", "yes"}
+        found = run_once(process=not only)
+        return {"items": found, "discover_only": only}
 
     return app
 

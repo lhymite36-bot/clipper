@@ -40,3 +40,21 @@ samples/recap/*-short.txt
 samples/recap/*-long.txt
 !samples/recap/SOURCE.txt
 !samples/recap/README.md
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/pipeline/build/
+android/local.properties
+android/*.iml
+android/.idea/
+*.apk
+*.aab
+
+samples/android/*.mp4
+samples/android/*.ass
+samples/android/*.png
+samples/android/*.wav
+!samples/android/README.md
+!samples/android/SOURCE.txt
