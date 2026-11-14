@@ -1,0 +1,75 @@
+{
+  "source": "/tmp/clipper-v2/aib.webm",
+  "source_title": "aib",
+  "source_url": "/tmp/clipper-v2/aib.webm",
+  "duration": 307.581,
+  "count": 2,
+  "geo": [
+    "US",
+    "UK",
+    "IN"
+  ],
+  "hook_rules": "",
+  "clips": [
+    {
+      "index": 1,
+      "path": "/workspace/clipper/samples/v3/01-is-that-a-smile.mp4",
+      "sidecar": "/workspace/clipper/samples/v3/01-is-that-a-smile.txt",
+      "start": 102.98,
+      "end": 120.42,
+      "duration": 17.439999999999998,
+      "hook": "Is That A Smile?",
+      "reason": "Payoff: a loud spike (loud spike, scene-change) at 120.4s",
+      "title": "Is That A Smile?",
+      "description": "Is That A Smile?. A loud spike (loud spike, scene-change) at 120.4s.\n\nClipped from: aib.\n\nMusic: 'clipper-warm-bed' from the local Clipper library (use only tracks you have the rights to, e.g. YouTube Audio Library, CC0, or CC BY with credit).\n\nCampaign regions: US, UK, IN.\n\nPosted as a YouTube Short. Please credit the original creator.",
+      "hashtags": [
+        "shorts",
+        "youtubeshorts",
+        "smile",
+        "stronger",
+        "hottest"
+      ],
+      "style": "auto",
+      "source": "heuristic",
+      "peak": 120.375,
+      "peak_kind": "loud",
+      "preset": "story-skit",
+      "layout": "fill",
+      "title_options": [
+        "Is That A Smile?"
+      ],
+      "queue_id": "",
+      "music_credit": "Music: 'clipper-warm-bed' from the local Clipper library (use only tracks you have the rights to, e.g. YouTube Audio Library, CC0, or CC BY with credit)."
+    },
+    {
+      "index": 2,
+      "path": "/workspace/clipper/samples/v3/02-when-typhoid-is-nothing.mp4",
+      "sidecar": "/workspace/clipper/samples/v3/02-when-typhoid-is-nothing.txt",
+      "start": 174.16,
+      "end": 193.17,
+      "duration": 19.00999999999999,
+      "hook": "When Typhoid Is Nothing",
+      "reason": "Payoff: an action beat (action) at 193.1s",
+      "title": "When Typhoid Is Nothing",
+      "description": "When Typhoid Is Nothing. An action beat (action) at 193.1s.\n\nClipped from: aib.\n\nMusic: 'clipper-warm-bed' from the local Clipper library (use only tracks you have the rights to, e.g. YouTube Audio Library, CC0, or CC BY with credit).\n\nCampaign regions: US, UK, IN.\n\nPosted as a YouTube Short. Please credit the original creator.",
+      "hashtags": [
+        "shorts",
+        "youtubeshorts",
+        "important",
+        "thankful",
+        "typhoid"
+      ],
+      "style": "auto",
+      "source": "heuristic",
+      "peak": 193.125,
+      "peak_kind": "action",
+      "preset": "story-skit",
+      "layout": "fill",
+      "title_options": [
+        "When Typhoid Is Nothing"
+      ],
+      "queue_id": "",
+      "music_credit": "Music: 'clipper-warm-bed' from the local Clipper library (use only tracks you have the rights to, e.g. YouTube Audio Library, CC0, or CC BY with credit)."
+    }
+  ]
+}

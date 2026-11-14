@@ -57,5 +57,7 @@ jobs:
           files: dist/Clipper-Setup.exe
           generate_release_notes: true
           fail_on_unmatched_files: true
+          prerelease: true
+          make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

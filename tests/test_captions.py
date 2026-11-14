@@ -72,3 +72,51 @@ def test_word_captions_can_be_disabled(tmp_path: Path):
     assert "A title" in text
     # No default-style word events (hook is style Hook).
     assert "Default,," not in text
+
+
+def test_hook_has_no_fade_and_uses_anton(tmp_path: Path):
+    words = [Word("Hello", 0.2, 0.5), Word("world!", 0.5, 0.9)]
+    tr = Transcript("Hello world!", "en", [], words, 8)
+    path = build_ass(tr, tmp_path / "nofade.ass", hook="Is That A Smile?", duration=8.0)
+    text = path.read_text(encoding="utf-8")
+    assert "\\fad(" not in text
+    assert "Style: Hook,Anton," in text
+    assert "Is That A Smile?" in text
+
+
+def test_wrap_hook_splits_long_lines():
+    from clipper.captions import wrap_hook
+
+    assert wrap_hook("Is That A Smile?") == "Is That A Smile?"
+    wrapped = wrap_hook("When developers forget it's just a game")
+    assert "\n" in wrapped
+    top, bot = wrapped.split("\n")
+    assert top and bot
+    assert "developers" in wrapped and "game" in wrapped
+
+
+def test_word_events_do_not_overlap(tmp_path: Path):
+    """Whisper sometimes gives two words the same start; they must not stack."""
+    words = [
+        Word("it's", 1.00, 1.20),
+        Word("gone.", 1.00, 1.30),
+        Word("I", 1.30, 1.40),
+        Word("knew", 1.32, 1.50),
+        Word("it.", 1.50, 1.70),
+    ]
+    tr = Transcript("it's gone. I knew it.", "en", [], words, 4)
+    path = build_ass(tr, tmp_path / "overlap.ass", hook=None, word_captions=True, duration=4)
+    events = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("Dialogue: 0,"):
+            continue
+        parts = line.split(",")
+        # Format: Layer, Start, End, Style, ...
+        events.append((parts[1], parts[2]))
+    def to_s(stamp: str) -> float:
+        h, m, s = stamp.split(":")
+        return int(h) * 3600 + int(m) * 60 + float(s)
+    times = [(to_s(a), to_s(b)) for a, b in events]
+    assert times, events
+    for (s1, e1), (s2, e2) in zip(times, times[1:]):
+        assert e1 <= s2 + 1e-6, ((s1, e1), (s2, e2))

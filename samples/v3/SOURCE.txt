@@ -1,0 +1,18 @@
+Sample clips for Clipper v1.1.0 were generated on 2026-11-14 (Asia/Calcutta)
+from All India Bakchod's sketch "If People Treated Other Illnesses Like
+They Treat Depression" (5:08, 1920x1080).
+
+Source (Wikimedia Commons):
+https://upload.wikimedia.org/wikipedia/commons/8/8f/AIB_-_If_People_Treated_Other_Illnesses_Like_They_Treat_Depression.webm
+
+License: Creative Commons Attribution 3.0
+https://creativecommons.org/licenses/by/3.0/
+
+Please credit All India Bakchod when sharing these samples.
+
+These two clips use the v1.1.0 features: Whisper small with English language
+forcing, fill layout (blurred 9:16 background and a sharp 16:9 picture under
+the hook bar), an original copyright-safe music bed ducked under speech,
+stock whoosh/riser/impact SFX, a freeze-frame loop ending, and cleaned
+titles / descriptions / hashtags. Music is an original Clipper-generated bed
+(no third-party recording, and no audio ripped from YouTube).

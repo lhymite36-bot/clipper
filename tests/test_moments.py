@@ -104,7 +104,9 @@ def test_heuristic_prefers_keyword_moments():
     assert m.peak is not None
     assert 22 <= m.peak <= 28
     assert m.payoff_in_last_30()
-    assert m.end >= m.peak + 1.2
+    # Hold a short reaction, but stop at the pause after the last punchy word.
+    assert m.end >= m.peak + 0.5
+    assert m.end >= 27.4
     assert m.end <= m.peak + 5.0
     assert "WAIT FOR IT" not in (m.hook or "").upper() or "INSANE" in (m.hook or "").upper() or "HAHA" in (m.hook or "").upper()
 
@@ -231,3 +233,40 @@ def test_later_punchline_wins_nearby_setup():
     nearby = [p for p in peaks if abs(p.time - best.time) < 8]
     assert len(nearby) == 1
     assert nearby[0].time >= 15.0
+
+
+def test_window_stops_before_next_sentence():
+    """A new sentence after the payoff must not be eaten by the default hold."""
+    bounds = [(8.0, 16.0), (16.0, 24.3), (24.5, 27.8)]
+    window = window_around_payoff(24.0, 80, bounds, 15, 60)
+    assert window is not None
+    start, end = window
+    assert end <= 24.55
+    assert end >= 24.35
+    assert end - start >= 15
+    assert 24.0 + 0.5 >= start + 0.70 * (end - start)
+
+
+def test_window_stops_at_scene_cut():
+    bounds = [(8.0, 28.0)]
+    window = window_around_payoff(24.0, 80, bounds, 15, 60, cuts=[25.0])
+    assert window is not None
+    start, end = window
+    assert 24.85 <= end <= 25.0
+    assert end - start >= 15
+
+
+def test_speech_breaks_mark_pauses():
+    from clipper.moments import speech_breaks
+
+    words = [
+        ("I", 10.0, 10.2),
+        ("knew", 10.2, 10.5),
+        ("it", 10.5, 10.8),
+        ("The", 12.0, 12.3),
+        ("second", 12.3, 12.6),
+        ("question", 12.6, 13.0),
+    ]
+    breaks = speech_breaks(_tr(words, 20), min_gap=0.7)
+    assert len(breaks) == 1
+    assert 10.8 <= breaks[0] <= 11.1

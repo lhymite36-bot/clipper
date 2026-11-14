@@ -10,15 +10,23 @@
   <main class="wrap">
     <header>
       <div class="logo">Clipper</div>
-      <p class="tag">Turn a long video into vertical YouTube Shorts. Free, local, no paid APIs.</p>
+      <p class="tag">Turn a long video into vertical YouTube Shorts. Free, local, no paid APIs. Nothing posts until you approve it.</p>
     </header>
 
-    <form id="form" class="card">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab on" id="tab-clips" data-tab="clips">Shorts clips</button>
+      <button type="button" class="tab" id="tab-recap" data-tab="recap">Movie recap</button>
+    </div>
+
+    <form id="form" class="card tab-panel" data-panel="clips">
       <label>YouTube or video URL
         <input type="url" id="url" name="url" placeholder="https://www.youtube.com/watch?v=…" />
       </label>
       <label>Or a local file
         <input type="file" id="file" name="file" accept="video/*,.mp4,.mkv,.webm,.mov" />
+      </label>
+      <label>Campaign brief (optional — paste source, duration, hook rules, geo)
+        <textarea id="brief" name="brief" rows="4" placeholder="Source: https://youtube.com/…&#10;Duration: 15-30s&#10;Hook: curiosity question, no spoilers&#10;Geo: US, UK, CA"></textarea>
       </label>
       <div class="row">
         <label>Clips
@@ -34,19 +42,30 @@
         </label>
         <label>Whisper model
           <select id="model" name="model">
-            <option value="tiny" selected>tiny (fast)</option>
+            <option value="tiny">tiny (fast)</option>
             <option value="base">base</option>
-            <option value="small">small</option>
+            <option value="small" selected>small (accurate)</option>
+          </select>
+        </label>
+        <label>Language
+          <select id="language" name="language">
+            <option value="auto" selected>Auto (fix English if misdetected)</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="hi">Hindi</option>
+            <option value="pt">Portuguese</option>
+            <option value="fr">French</option>
           </select>
         </label>
       </div>
       <div class="row">
         <label>Layout
           <select id="layout" name="layout">
-            <option value="auto" selected>Auto (tight vs letterbox)</option>
+            <option value="auto" selected>Auto (fill 16:9, tight for vertical)</option>
+            <option value="fill">Fill (blur background + sharp 16:9)</option>
             <option value="tight">Tight 9:16 crop</option>
             <option value="bars">16:9 with bars</option>
-            <option value="blur">Blur fill</option>
+            <option value="blur">Blur fill (cropped)</option>
           </select>
         </label>
         <label>Grade
@@ -70,11 +89,14 @@
       <label>Hook text on every clip (optional)
         <input type="text" id="hook" name="hook" maxlength="80" placeholder="Leave blank for a curiosity-gap hook" />
       </label>
-      <label>Music bed (optional, your file or royalty-free only)
+      <label>Music bed (optional — only a file you have rights to; never ripped from YouTube)
         <input type="file" id="music" name="music" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" />
       </label>
+      <label class="check"><input type="checkbox" id="auto_music" checked /> Auto background music from a copyright-safe bed (library folder, or an original Clipper bed)</label>
+      <label class="check"><input type="checkbox" id="sfx" checked /> Stock SFX (whoosh / riser / impact) at the hook and payoff</label>
+      <label class="check"><input type="checkbox" id="enqueue" checked /> Add finished clips to the review queue (nothing posts automatically)</label>
       <details>
-        <summary>Crop hint and optional free API keys (Gemini or Groq)</summary>
+        <summary>Crop hint and optional free API keys (Gemini or Groq). Keys in .env are used automatically and never shown.</summary>
         <label>Tight-crop hint
           <select id="style" name="style">
             <option value="auto" selected>Auto (face, then center)</option>
@@ -83,16 +105,84 @@
             <option value="blur">Blurred background</option>
           </select>
         </label>
-        <label>Gemini API key
+        <p class="hint" id="key-status">Checking saved keys…</p>
+        <label>Gemini API key (optional override, not saved)
           <input type="password" id="gemini" name="gemini_key" autocomplete="off" />
         </label>
-        <label>Groq API key
+        <label>Groq API key (optional override, not saved)
           <input type="password" id="groq" name="groq_key" autocomplete="off" />
         </label>
       </details>
       <label class="check"><input type="checkbox" id="punch" checked /> Punch-in zoom at the payoff</label>
-      <label class="check"><input type="checkbox" id="loop" checked /> End on a calm frame so the clip loops</label>
+      <label class="check"><input type="checkbox" id="loop" checked /> End on a calm frozen frame so the clip loops</label>
       <button type="submit" id="go">Make clips</button>
+    </form>
+
+    <form id="recap-form" class="card tab-panel hidden" data-panel="recap">
+      <p class="hint">Make an AI-voiceover recap of a film or trailer you have the rights to use. Short = 45–60s vertical with a hook bar; long = 16:9 with chapters. Music must be a file you own or a royalty-free / original bed — Clipper never rips audio from YouTube.</p>
+      <p class="hint">Important: a recap can still be claimed by Content ID even when the narration, cuts, and grade make it a commentary/review. Clipper does not flip, speed-shift, or otherwise try to hide a film from detection.</p>
+      <label>Movie title (required)
+        <input type="text" id="recap-title" name="title" maxlength="120" placeholder="Sintel" required />
+      </label>
+      <label>YouTube or video URL (optional if you upload a file, or leave both empty for illustrated stills)
+        <input type="url" id="recap-url" name="url" placeholder="https://…" />
+      </label>
+      <label>Or a local movie / trailer file
+        <input type="file" id="recap-file" name="file" accept="video/*,.mp4,.mkv,.webm,.mov" />
+      </label>
+      <div class="row">
+        <label>Format
+          <select id="recap-format" name="format">
+            <option value="short" selected>Short (45–60s, 9:16)</option>
+            <option value="long">Long (16:9 recap)</option>
+          </select>
+        </label>
+        <label>Target seconds (optional)
+          <input type="number" id="recap-target" name="target_seconds" min="30" max="900" placeholder="auto" />
+        </label>
+        <label>Voice
+          <select id="recap-voice" name="voice">
+            <option value="auto" selected>Auto (Gemini Fenrir, else Aria)</option>
+            <option value="Fenrir">Fenrir (Gemini)</option>
+            <option value="Charon">Charon (Gemini)</option>
+            <option value="Kore">Kore (Gemini)</option>
+            <option value="en-US-AndrewNeural">Andrew (edge-tts)</option>
+            <option value="en-US-AriaNeural">Aria (edge-tts)</option>
+            <option value="en-US-BrianNeural">Brian (edge-tts)</option>
+            <option value="en-GB-RyanNeural">Ryan UK (edge-tts)</option>
+            <option value="en-US-JennyNeural">Jenny (edge-tts)</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>Grade
+          <select id="recap-grade" name="grade">
+            <option value="moody" selected>Moody</option>
+            <option value="contrast">High contrast</option>
+            <option value="warm">Warm</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+        <label>Whisper model
+          <select id="recap-model" name="model">
+            <option value="tiny">tiny</option>
+            <option value="base">base</option>
+            <option value="small" selected>small</option>
+          </select>
+        </label>
+      </div>
+      <label>Plot notes (optional — paste a synopsis)
+        <textarea id="recap-plot-text" name="plot_text" rows="3" placeholder="Optional plot so the script stays accurate when the film is mostly silent."></textarea>
+      </label>
+      <label>Or a plot / subtitle file
+        <input type="file" id="recap-subs" name="subs" accept=".srt,.vtt,.txt,text/plain" />
+      </label>
+      <label>Music bed (optional, your file or royalty-free only)
+        <input type="file" id="recap-music" name="music" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" />
+      </label>
+      <label class="check"><input type="checkbox" id="recap-spoilers" /> Include spoilers / the ending (off by default for Shorts)</label>
+      <label class="check"><input type="checkbox" id="recap-enqueue" checked /> Add the finished recap to the review queue (nothing posts until you approve it and turn off draft-only)</label>
+      <button type="submit" id="recap-go">Make recap</button>
     </form>
 
     <section id="progress" class="card hidden">
@@ -101,6 +191,42 @@
     </section>
 
     <section id="results" class="hidden"></section>
+
+    <section id="queue-card" class="card">
+      <h2>Review queue</h2>
+      <p class="hint">Clips stay here until you approve them. Draft-only is on by default, so even approved clips are sent as drafts unless you turn on autopilot.</p>
+      <div id="queue-list"><p class="hint">Loading queue…</p></div>
+    </section>
+
+    <section id="settings-card" class="card">
+      <h2>Publishing settings</h2>
+      <p class="hint">Put <code>BUFFER_API_KEY</code> and <code>CLIPPER_GITHUB_TOKEN</code> in your <code>.env</code> (never paste them here). Buffer needs a public video URL; Clipper can upload the MP4 to a public GitHub repo or release, the same way Voice to Short does. Direct YouTube Data API upload is optional.</p>
+      <div class="row">
+        <label>Publish method
+          <select id="publish_method">
+            <option value="buffer">Buffer (default)</option>
+            <option value="youtube">YouTube Data API</option>
+          </select>
+        </label>
+        <label>Times per day
+          <input type="number" id="per_day" min="1" max="10" value="3" />
+        </label>
+        <label>Schedule times (Asia/Calcutta)
+          <input type="text" id="schedule_times" placeholder="18:00, 19:30, 21:00" />
+        </label>
+      </div>
+      <label>Public GitHub repo for media URLs (e.g. lhymite36-bot/qb-media)
+        <input type="text" id="github_repo" placeholder="owner/repo" />
+      </label>
+      <label>Buffer YouTube channel id
+        <input type="text" id="buffer_channel_id" placeholder="Load from Buffer after the API key is in .env" />
+      </label>
+      <p><button type="button" id="load-channels" class="secondary">Load Buffer channels</button> <span id="channel-status" class="hint"></span></p>
+      <label class="check"><input type="checkbox" id="draft_only" checked /> Draft only (default on — nothing goes live)</label>
+      <label class="check"><input type="checkbox" id="autopilot" /> Autopilot (off until you enable it)</label>
+      <button type="button" id="save-settings">Save settings</button>
+      <p class="hint" id="settings-status"></p>
+    </section>
   </main>
   <script src="/static/app.js"></script>
 </body>

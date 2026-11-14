@@ -1,0 +1,14 @@
+Recap samples for Clipper v1.2.0 were generated on 14 November 2026
+(Asia/Calcutta) from the open movie Sintel (2010) by the Blender Foundation.
+
+Source: /tmp/clipper-recap/sintel-2048-surround.mp4
+(Blender Durian / Creative Commons Attribution 3.0)
+
+https://durian.blender.org/
+https://creativecommons.org/licenses/by/3.0/
+
+Please credit the Blender Foundation when sharing these samples.
+
+Music is an original Clipper-generated bed (no third-party recording, and
+no audio ripped from YouTube). These recaps are commentary/review edits and
+can still be claimed by Content ID on some platforms.

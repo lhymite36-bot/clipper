@@ -60,6 +60,10 @@ GENERIC_HOOKS = {
 
 HOLD_MIN = 1.5
 HOLD_MAX = 4.0
+# Soft hold when nothing else is coming. Hard cuts / the next sentence
+# may land sooner; we still require a tiny gap after the peak.
+REACTION_MIN = 0.55
+HARD_STOP_MIN = 0.2
 # Peak must sit in the last ~30% of the clip (0.5s slack).
 PAYOFF_POSITION = 0.70
 PAYOFF_SLACK = 0.5
@@ -316,6 +320,81 @@ def detect_payoffs(
     return kept
 
 
+def speech_breaks(transcript: Transcript, min_gap: float = 0.7) -> list[float]:
+    """Times just after a pause in speech — natural places to end a clip."""
+    words = [w for w in (transcript.words or []) if (w.word or "").strip()]
+    breaks: list[float] = []
+    for a, b in zip(words, words[1:]):
+        if b.start - a.end >= min_gap:
+            breaks.append(float(a.end + 0.08))
+    return breaks
+
+
+def scene_cuts(
+    video: Path | str | None,
+    duration: float,
+    *,
+    threshold: float = 3.5,
+) -> list[float]:
+    """Hard cuts from z-scored frame differences. Empty if video is missing."""
+    if not video or not Path(video).is_file() or duration <= 0:
+        return []
+    try:
+        from clipper.visual_peaks import frame_diff_series
+
+        times, z = frame_diff_series(Path(video), duration)
+    except Exception:
+        return []
+    if times.size == 0:
+        return []
+    cuts: list[float] = []
+    last = -10.0
+    z = [float(v) for v in z]
+    for i, t in enumerate(times):
+        v = z[i]
+        prev = z[i - 1] if i else 0.0
+        nxt = z[i + 1] if i + 1 < len(z) else 0.0
+        isolated = v >= 2.3 and v >= max(prev, nxt) + 1.2
+        if (v >= threshold or isolated) and t - last >= 0.4:
+            cuts.append(float(t))
+            last = float(t)
+    return cuts
+
+
+def _preferred_end(
+    peak: float,
+    duration: float,
+    bounds: list[tuple[float, float]],
+    *,
+    cuts: list[float] | None = None,
+    breaks: list[float] | None = None,
+    hold: float = 2.8,
+) -> float:
+    """End just after the payoff, but stop before the next scene or sentence."""
+    cap = min(duration, peak + HOLD_MAX)
+    earliest_hard = min(duration, peak + HARD_STOP_MIN)
+    earliest_soft = min(duration, peak + REACTION_MIN)
+    stops: list[float] = []
+    # Subtract a couple of frames so the first picture of the next shot
+    # is not included in the last frame of the clip.
+    pad = 0.08
+    # A cut at the peak is the end of this shot — don't hold past it.
+    for t in list(cuts or []):
+        if peak - 0.02 <= t <= cap:
+            stops.append(min(cap, max(peak, t - pad)))
+    for t in list(breaks or []):
+        if earliest_hard <= t <= cap:
+            stops.append(t - pad)
+    # Do not eat the next sentence: stop just before it starts.
+    for a, _b in bounds or []:
+        if peak + 0.05 < a <= cap:
+            stops.append(max(earliest_hard, a - pad))
+            break
+    if stops:
+        return min(max(min(stops), peak), cap)
+    return min(cap, max(earliest_soft, peak + hold))
+
+
 def window_around_payoff(
     peak: float,
     duration: float,
@@ -323,6 +402,8 @@ def window_around_payoff(
     min_dur: float,
     max_dur: float,
     hold: float = 2.8,
+    cuts: list[float] | None = None,
+    breaks: list[float] | None = None,
 ) -> tuple[float, float] | None:
     """Start during the setup; end just after the payoff. Peak stays in the last 30%."""
     duration = float(duration)
@@ -340,13 +421,10 @@ def window_around_payoff(
         return None
 
     hold = min(HOLD_MAX, max(HOLD_MIN, hold))
-    end = min(duration, peak + hold)
-    # Snap the end to a nearby sentence boundary just after the peak.
-    if bounds:
-        after = [b for a, b in bounds if peak + HOLD_MIN <= b <= peak + HOLD_MAX]
-        if after:
-            end = min(duration, min(after, key=lambda b: abs(b - (peak + 2.6))))
-    end = min(duration, max(end, min(duration, peak + HOLD_MIN)))
+    end = _preferred_end(peak, duration, bounds, cuts=cuts, breaks=breaks, hold=hold)
+    # Don't raise a hard-stop (scene cut / next sentence) back up to a
+    # minimum hold — that is how clips used to walk into the next shot.
+    end = min(duration, max(end, peak))
 
     # If the payoff is late enough, we can stretch `end` slightly so a
     # min-duration clip starting at 0 still keeps the peak in the last 30%.
@@ -396,7 +474,7 @@ def window_around_payoff(
         return None
     if peak + PAYOFF_SLACK < start + PAYOFF_POSITION * (end - start):
         return None
-    if end < peak + 0.8:
+    if end < peak:
         return None
     return start, end
 
@@ -581,8 +659,12 @@ def _moment_from_payoff(
     min_dur: float,
     max_dur: float,
     source: str,
+    cuts: list[float] | None = None,
+    breaks: list[float] | None = None,
 ) -> Moment | None:
-    window = window_around_payoff(payoff.time, duration, bounds, min_dur, max_dur)
+    window = window_around_payoff(
+        payoff.time, duration, bounds, min_dur, max_dur, cuts=cuts, breaks=breaks
+    )
     if not window:
         return None
     start, end = window
@@ -617,6 +699,8 @@ def heuristic_moments(
 
     payoffs = detect_payoffs(transcript, duration, wav=wav, video=video)
     bounds = _sentence_bounds(transcript, duration)
+    cuts = scene_cuts(video, duration)
+    breaks = speech_breaks(transcript)
     picked: list[Moment] = []
 
     def overlaps(a: float, b: float) -> bool:
@@ -625,7 +709,10 @@ def heuristic_moments(
     for payoff in payoffs:
         if len(picked) >= count:
             break
-        moment = _moment_from_payoff(payoff, transcript, duration, bounds, min_dur, max_dur, "heuristic")
+        moment = _moment_from_payoff(
+            payoff, transcript, duration, bounds, min_dur, max_dur, "heuristic",
+            cuts=cuts, breaks=breaks,
+        )
         if not moment:
             continue
         if overlaps(moment.start, moment.end):
@@ -658,9 +745,12 @@ def attach_payoff(
         return None
     payoff = max(inside, key=lambda p: p.score)
     bounds = _sentence_bounds(transcript, duration)
+    cuts = scene_cuts(video, duration)
+    breaks = speech_breaks(transcript)
     if reshape:
         reshaped = _moment_from_payoff(
-            payoff, transcript, duration, bounds, min_dur, max_dur, moment.source or "llm"
+            payoff, transcript, duration, bounds, min_dur, max_dur, moment.source or "llm",
+            cuts=cuts, breaks=breaks,
         )
         if reshaped:
             if moment.title and not reshaped.title:

@@ -41,6 +41,9 @@ $common = @(
   "--hidden-import=clipper.web",
   "--hidden-import=clipper.pipeline",
   "--collect-submodules", "clipper",
+  "--hidden-import=edge_tts",
+  "--hidden-import=scenedetect",
+  "--hidden-import=PIL",
   "--add-data", "src/clipper/data;clipper/data",
   "--add-data", "src/clipper/static;clipper/static"
 )

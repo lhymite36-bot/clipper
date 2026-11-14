@@ -1,6 +1,6 @@
 ; Inno Setup script for Clipper
 #define MyAppName "Clipper"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Pedro"
 #define MyAppExeName "Clipper.exe"
 #define MyCliExeName "clipper.exe"

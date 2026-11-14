@@ -33,7 +33,10 @@ def _run_job(job_id: str, source: str, opts: dict) -> None:
     from clipper.pipeline import run_pipeline
 
     def progress(msg: str) -> None:
-        _update(job_id, log_line=str(msg), message=str(msg))
+        from clipper.config import redact
+
+        text = redact(str(msg))
+        _update(job_id, log_line=text, message=text)
 
     _update(job_id, status="running", message="Starting…")
     try:
@@ -43,6 +46,43 @@ def _run_job(job_id: str, source: str, opts: dict) -> None:
             status="done",
             message=f"Finished {len(results)} clip(s)",
             clips=[r.to_dict() for r in results],
+        )
+    except Exception as exc:  # noqa: BLE001
+        _update(job_id, status="error", message=str(exc), log_line=f"Error: {exc}")
+
+
+
+def _run_recap_job(job_id: str, source: str | None, opts: dict) -> None:
+    from clipper.recap import run_recap
+
+    def progress(msg: str) -> None:
+        _update(job_id, log_line=str(msg), message=str(msg))
+
+    _update(job_id, status="running", message="Starting recap…")
+    try:
+        result = run_recap(source, opts["title"], opts["out_dir"], progress=progress, **opts["pipeline"])
+        _update(
+            job_id,
+            status="done",
+            message=f"Finished recap ({result.duration:.0f}s)",
+            recap=result.to_dict(),
+            clips=[
+                {
+                    "index": 1,
+                    "path": result.path,
+                    "sidecar": result.sidecar,
+                    "title": result.title,
+                    "description": result.description,
+                    "hashtags": result.tags,
+                    "hook": result.hook,
+                    "start": 0,
+                    "end": result.duration,
+                    "duration": result.duration,
+                    "preset": "recap-" + result.format,
+                    "layout": "blur" if result.format == "short" else "wide",
+                    "title_options": [],
+                }
+            ],
         )
     except Exception as exc:  # noqa: BLE001
         _update(job_id, status="error", message=str(exc), log_line=f"Error: {exc}")
@@ -73,7 +113,9 @@ def create_app():
             find_ffmpeg()
         except FFmpegError:
             ffmpeg = False
-        return {"ok": True, "version": __version__, "ffmpeg": ffmpeg}
+        from clipper.config import public_settings
+
+        return {"ok": True, "version": __version__, "ffmpeg": ffmpeg, "settings": public_settings()}
 
     @app.post("/api/jobs")
     async def start_job(
@@ -84,12 +126,17 @@ def create_app():
         preset: str = Form("auto"),
         layout: str = Form("auto"),
         grade: str = Form("auto"),
-        model: str = Form("tiny"),
+        model: str = Form("small"),
+        language: str = Form("auto"),
+        brief: str = Form(""),
         gemini_key: str = Form(""),
         groq_key: str = Form(""),
         captions: str = Form("auto"),
         punch: str = Form("1"),
         loop: str = Form("1"),
+        auto_music: str = Form("1"),
+        sfx: str = Form("1"),
+        enqueue: str = Form("1"),
         file: UploadFile | None = File(None),
         music: UploadFile | None = File(None),
     ):
@@ -132,7 +179,8 @@ def create_app():
             "out_dir": out_dir,
             "pipeline": {
                 "count": max(1, min(int(count or 5), 20)),
-                "model": model or "tiny",
+                "model": model or "small",
+                "language": language or "auto",
                 "hook": hook.strip() or None,
                 "style": style or "auto",
                 "preset": preset or "auto",
@@ -143,6 +191,10 @@ def create_app():
                 "captions": cap,
                 "punch": punch not in {"0", "false", "off"},
                 "loop": loop not in {"0", "false", "off"},
+                "auto_music": auto_music not in {"0", "false", "off"},
+                "sfx": sfx not in {"0", "false", "off"},
+                "enqueue": enqueue not in {"0", "false", "off"},
+                "brief": brief.strip() or None,
                 "music": music_path,
             },
         }
@@ -160,6 +212,106 @@ def create_app():
         thread.start()
         return {"id": job_id}
 
+
+    @app.get("/api/voices")
+    def voices():
+        from clipper.recap_tts import list_voices
+
+        return {"voices": list_voices()}
+
+    @app.post("/api/recap")
+    async def start_recap(
+        url: str = Form(""),
+        title: str = Form(""),
+        format: str = Form("short"),
+        voice: str = Form("auto"),
+        spoilers: str = Form("0"),
+        target_seconds: str = Form(""),
+        model: str = Form("small"),
+        language: str = Form("auto"),
+        grade: str = Form("moody"),
+        plot_text: str = Form(""),
+        gemini_key: str = Form(""),
+        groq_key: str = Form(""),
+        file: UploadFile | None = File(None),
+        subs: UploadFile | None = File(None),
+        plot: UploadFile | None = File(None),
+        music: UploadFile | None = File(None),
+        enqueue: str = Form("1"),
+    ):
+        if not (title or "").strip():
+            raise HTTPException(400, "A movie title is required")
+        job_id = uuid.uuid4().hex[:12]
+        out_dir = Path.home() / "Clipper" / "jobs" / job_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        work = out_dir / "_work"
+        work.mkdir(parents=True, exist_ok=True)
+
+        source = (url or "").strip() or None
+        if file and file.filename:
+            suffix = Path(file.filename).suffix or ".mp4"
+            saved = work / f"upload{suffix}"
+            data = await file.read()
+            if data:
+                saved.write_bytes(data)
+                source = str(saved)
+
+        async def _save(up, name):
+            if not up or not up.filename:
+                return None
+            suffix = Path(up.filename).suffix or ""
+            dest = work / f"{name}{suffix}"
+            data = await up.read()
+            if not data:
+                return None
+            dest.write_bytes(data)
+            return str(dest)
+
+        subs_path = await _save(subs, "subs")
+        plot_path = await _save(plot, "plot")
+        music_path = await _save(music, "music")
+        target = None
+        if (target_seconds or "").strip():
+            try:
+                target = float(target_seconds)
+            except ValueError:
+                target = None
+
+        opts = {
+            "out_dir": out_dir,
+            "title": title.strip(),
+            "pipeline": {
+                "fmt": format or "short",
+                "voice": voice or "auto",
+                "spoilers": spoilers not in {"0", "false", "off"},
+                "subs": subs_path,
+                "plot": plot_path,
+                "plot_text": plot_text.strip() or None,
+                "target_seconds": target,
+                "model": model or "small",
+                "language": language or "auto",
+                "grade": grade or "moody",
+                "music": music_path,
+                "enqueue": enqueue not in {"0", "false", "off"},
+                "gemini_key": gemini_key.strip() or None,
+                "groq_key": groq_key.strip() or None,
+            },
+        }
+        with JOBS_LOCK:
+            JOBS[job_id] = {
+                "id": job_id,
+                "status": "queued",
+                "message": "Queued recap",
+                "log": [],
+                "clips": [],
+                "recap": None,
+                "out_dir": str(out_dir),
+                "created": time.time(),
+            }
+        thread = threading.Thread(target=_run_recap_job, args=(job_id, source, opts), daemon=True)
+        thread.start()
+        return {"id": job_id}
+
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):
         job = _job(job_id)
@@ -172,6 +324,7 @@ def create_app():
             "message": job.get("message") or "",
             "log": job.get("log") or [],
             "clips": job.get("clips") or [],
+            "recap": job.get("recap"),
         }
 
     @app.get("/api/jobs/{job_id}/file")
@@ -189,6 +342,62 @@ def create_app():
             raise HTTPException(404, "File not found")
         media = "video/mp4" if target.suffix.lower() == ".mp4" else "text/plain"
         return FileResponse(target, media_type=media, filename=target.name)
+
+    @app.get("/api/settings")
+    def get_settings():
+        from clipper.config import public_settings
+
+        return public_settings()
+
+    @app.post("/api/settings")
+    async def post_settings(payload: dict):
+        from clipper.config import public_settings, save_settings
+
+        allowed = {
+            "model", "language", "draft_only", "autopilot", "publish_method",
+            "schedule_times", "per_day", "github_repo", "buffer_channel_id",
+            "buffer_organization_id", "youtube_privacy", "auto_music", "sfx", "enqueue",
+        }
+        updates = {k: v for k, v in (payload or {}).items() if k in allowed}
+        save_settings(updates)
+        return public_settings()
+
+    @app.get("/api/queue")
+    def get_queue():
+        from clipper.publish import load_queue
+
+        return {"items": load_queue()}
+
+    @app.post("/api/queue/{item_id}/{action}")
+    def queue_action(item_id: str, action: str, draft: str = "1"):
+        from clipper.publish import post_item, set_status
+
+        action = (action or "").lower()
+        if action == "approve":
+            item = set_status(item_id, "approved")
+        elif action == "reject":
+            item = set_status(item_id, "rejected")
+        elif action == "publish":
+            item = post_item(item_id, force=False, draft=draft not in {"0", "false", "off"})
+        else:
+            raise HTTPException(400, "Unknown action")
+        if not item:
+            raise HTTPException(404, "Unknown queue item")
+        return item
+
+    @app.get("/api/buffer/channels")
+    def buffer_channels():
+        from clipper.config import secret
+        from clipper.publish import buffer_channels as list_channels
+
+        key = secret("BUFFER_API_KEY")
+        if not key:
+            raise HTTPException(400, "Set BUFFER_API_KEY in your .env first.")
+        try:
+            return {"channels": list_channels(key)}
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, str(exc)) from exc
+
 
     return app
 

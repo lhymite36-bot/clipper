@@ -35,6 +35,8 @@ class ClipResult:
     preset: str = ""
     layout: str = ""
     title_options: list[str] = field(default_factory=list)
+    queue_id: str = ""
+    music_credit: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -45,12 +47,27 @@ def _slug(text: str, fallback: str = "clip") -> str:
     return (text[:40] or fallback).lower()
 
 
+def _snap_to_beat(moment: Moment, bpm: float = 120) -> None:
+    """Nudge start/end onto a beat grid (montage preset) without losing the peak."""
+    beat = 60.0 / max(60.0, float(bpm))
+    start = round(moment.start / beat) * beat
+    end = round(moment.end / beat) * beat
+    if moment.peak is not None:
+        start = min(start, moment.peak - 0.4)
+        end = max(end, moment.peak + 0.4)
+    if end - start < 1.0:
+        return
+    moment.start = max(0.0, start)
+    moment.end = end
+
+
 def run_pipeline(
     source: str,
     out_dir: Path | str,
     *,
     count: int = 5,
-    model: str = "tiny",
+    model: str = "small",
+    language: str = "auto",
     hook: str | None = None,
     style: str = "auto",
     min_dur: float = 15.0,
@@ -64,29 +81,74 @@ def run_pipeline(
     layout: str | None = None,
     grade: str | None = None,
     music: Path | str | None = None,
-    music_volume: float = 0.22,
+    music_volume: float = 0.16,
+    music_dir: Path | str | None = None,
+    sounds_dir: Path | str | None = None,
+    auto_music: bool = True,
+    sfx: bool = True,
+    enqueue: bool | None = None,
+    brief: str | Path | None = None,
     loop: bool = True,
     speed_ramps: bool | None = None,
     progress=None,
 ) -> list[ClipResult]:
+    from clipper.config import load_dotenv_files, load_settings, redact, secret
+
     log = progress or (lambda *_a, **_k: None)
+    load_dotenv_files()
+    settings = load_settings()
+    geo: list[str] = []
+    hook_rules = ""
+
+    if brief:
+        from clipper.brief import load_brief, parse_brief
+
+        brief_path = Path(str(brief))
+        parsed = load_brief(brief_path) if brief_path.is_file() else parse_brief(str(brief))
+        if parsed.source and (not source or str(source).lower() in {"brief", "-"}):
+            source = parsed.source
+        if parsed.count:
+            count = parsed.count
+        if parsed.min_duration:
+            min_dur = parsed.min_duration
+        if parsed.max_duration:
+            max_dur = parsed.max_duration
+        hook_rules = parsed.hook_rules or ""
+        geo = list(parsed.geo or [])
+        if parsed.language:
+            language = parsed.language
+        if parsed.preset:
+            preset = parsed.preset
+        if parsed.captions:
+            captions = parsed.captions
+        if parsed.music is not None:
+            auto_music = bool(parsed.music)
+        log("Applied campaign brief" + (f" (geo: {', '.join(geo)})" if geo else ""))
+
     if count < 1:
         raise ValueError("--count must be at least 1")
     if min_dur <= 0 or max_dur < min_dur:
         raise ValueError("Invalid duration window")
+
+    if not gemini_key:
+        gemini_key = secret("GEMINI_API_KEY") or secret("GOOGLE_API_KEY") or None
+    if not groq_key:
+        groq_key = secret("GROQ_API_KEY") or None
 
     out_dir = Path(out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     workdir = out_dir / "_work"
     workdir.mkdir(parents=True, exist_ok=True)
 
-    video, info = download(source, workdir, progress=log)
+    video, info = download(source, workdir, progress=lambda m: log(redact(str(m))))
     duration = float(info.get("duration") or 0) or probe_duration(video)
     source_title = info.get("title") or Path(source).stem
-    source_url = info.get("webpage_url") or (source if source.startswith("http") else "")
+    source_url = info.get("webpage_url") or (source if str(source).startswith("http") else "")
     uploader = info.get("uploader") or ""
 
-    transcript = transcribe(video, workdir, model_size=model, progress=log)
+    transcript = transcribe(
+        video, workdir, model_size=model or "small", language=language or "auto", progress=log
+    )
     if not transcript.duration:
         transcript.duration = duration
 
@@ -132,9 +194,19 @@ def run_pipeline(
     log(f"Preset: {spec.name} (layout={spec.layout}, grade={spec.grade}, captions={spec.captions})")
 
     music_path = Path(music) if music else None
+    music_credit = ""
     if music and not (music_path and music_path.is_file()):
         log(f"Music file not found, continuing without a bed: {music}")
         music_path = None
+    if auto_music or music_path:
+        from clipper.library import pick_music
+
+        extras = [p for p in (music_dir, sounds_dir) if p]
+        pick = pick_music(spec.name, explicit=music_path, extra_dirs=extras)
+        if pick:
+            music_path = pick.path
+            music_credit = pick.credit
+            log(f"Music: {pick.mood} {pick.source} bed ({pick.path.name})")
 
     moments = select_moments(
         transcript,
@@ -156,6 +228,12 @@ def run_pipeline(
             "the count with clips that have no payoff."
         )
 
+    if spec.name == "sports-montage":
+        for moment in moments:
+            _snap_to_beat(moment)
+
+    do_enqueue = settings.get("enqueue", True) if enqueue is None else bool(enqueue)
+
     results: list[ClipResult] = []
     for i, moment in enumerate(moments, start=1):
         if spec.loop:
@@ -166,7 +244,15 @@ def run_pipeline(
                 log(f"Loop: trimmed end {moment.end:.2f}s → {new_end:.2f}s for a calmer last frame")
                 moment.end = new_end
 
-        fill_metadata(moment, transcript, source_title=source_title, source_url=source_url, uploader=uploader)
+        fill_metadata(
+            moment,
+            transcript,
+            source_title=source_title,
+            source_url=source_url,
+            uploader=uploader,
+            music_credit=music_credit,
+            geo=geo or None,
+        )
 
         user_hook = (hook or "").strip()
         if user_hook and not (_is_generic_hook(user_hook) and not moment.payoff_in_last_30()):
@@ -191,6 +277,21 @@ def run_pipeline(
             # Heuristic titles should follow the curiosity-gap hook, not a literal line.
             if moment.source != "llm" or not moment.title or moment.title.lower() in {"clip", "wait for it"}:
                 moment.title = banner.titles[0]
+        from clipper.metadata import build_description, clean_hashtags
+
+        moment.description = build_description(
+            moment,
+            transcript,
+            source_title=source_title,
+            source_url=source_url,
+            uploader=uploader,
+            music_credit=music_credit,
+            geo=geo or None,
+        )
+        moment.hashtags = clean_hashtags(
+            moment.hashtags,
+            " ".join(x for x in (moment.hook, moment.title, source_title) if x),
+        )
 
         face = detect_face_center(video, moment.start, moment.end)
         layout_plan = plan_layout(
@@ -222,6 +323,7 @@ def run_pipeline(
             layout=layout_plan,
             music=music_path,
             music_volume=music_volume,
+            sfx=sfx,
             progress=log,
         )
         sidecar = dest.with_suffix(".txt")
@@ -229,28 +331,34 @@ def run_pipeline(
             render_sidecar(moment, i, preset=spec.name, layout=layout_plan.mode),
             encoding="utf-8",
         )
-        results.append(
-            ClipResult(
-                index=i,
-                path=str(dest),
-                sidecar=str(sidecar),
-                start=moment.start,
-                end=moment.end,
-                duration=moment.duration,
-                hook=used_hook or "",
-                reason=moment.reason,
-                title=moment.title,
-                description=moment.description,
-                hashtags=list(moment.hashtags),
-                style=style,
-                source=moment.source,
-                peak=moment.peak,
-                peak_kind=moment.peak_kind,
-                preset=spec.name,
-                layout=layout_plan.mode,
-                title_options=list(moment.title_options),
-            )
+        result = ClipResult(
+            index=i,
+            path=str(dest),
+            sidecar=str(sidecar),
+            start=moment.start,
+            end=moment.end,
+            duration=moment.duration,
+            hook=used_hook or "",
+            reason=moment.reason,
+            title=moment.title,
+            description=moment.description,
+            hashtags=list(moment.hashtags),
+            style=style,
+            source=moment.source,
+            peak=moment.peak,
+            peak_kind=moment.peak_kind,
+            preset=spec.name,
+            layout=layout_plan.mode,
+            title_options=list(moment.title_options),
+            music_credit=music_credit,
         )
+        if do_enqueue:
+            from clipper.publish import enqueue as queue_add
+
+            item = queue_add(result.to_dict())
+            result.queue_id = item["id"]
+            log(f"Queued {item['id']} for review (nothing posts until you approve and disable draft-only).")
+        results.append(result)
         log(f"Saved {dest.name} — {moment.title}")
 
     manifest = {
@@ -259,6 +367,8 @@ def run_pipeline(
         "source_url": source_url,
         "duration": duration,
         "count": len(results),
+        "geo": geo,
+        "hook_rules": hook_rules,
         "clips": [r.to_dict() for r in results],
     }
     (out_dir / "clips.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
