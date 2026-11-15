@@ -59,6 +59,5 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: true
           make_latest: false
-          make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
