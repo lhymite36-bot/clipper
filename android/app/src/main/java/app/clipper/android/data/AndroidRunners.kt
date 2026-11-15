@@ -174,7 +174,7 @@ class YoutubeDlRunner(@Suppress("UNUSED_PARAMETER") context: Context) {
             instanceFollowRedirects = true
             connectTimeout = 12_000
             readTimeout = 20_000
-            setRequestProperty("User-Agent", "Clipper/1.2.1")
+            setRequestProperty("User-Agent", "Clipper/1.2.2")
             setRequestProperty("Accept", "application/json, application/atom+xml, text/xml, */*")
         }
         val code = conn.responseCode

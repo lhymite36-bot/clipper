@@ -524,5 +524,5 @@ private fun JobStatusCard() {
 }
 
 private object BuildConfigInfo {
-    const val VERSION = "1.2.1"
+    const val VERSION = "1.2.2"
 }

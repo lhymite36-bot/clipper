@@ -31,7 +31,7 @@ interface Http {
     ): RangeResult
 }
 
-class UrlConnectionHttp(private val userAgent: String = "Mozilla/5.0 (Linux; Android 14) Clipper/1.2.1") : Http {
+class UrlConnectionHttp(private val userAgent: String = "Mozilla/5.0 (Linux; Android 14) Clipper/1.2.2") : Http {
     private fun open(url: String, headers: Map<String, String>, timeoutMs: Int): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
