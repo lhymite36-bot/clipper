@@ -58,3 +58,4 @@ samples/android/*.png
 samples/android/*.wav
 !samples/android/README.md
 !samples/android/SOURCE.txt
+android/.kotlin/
