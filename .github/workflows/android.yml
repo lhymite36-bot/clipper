@@ -68,12 +68,14 @@ jobs:
 
       - name: Verify and rename
         run: |
+          VERSION=$(grep -oE 'versionName = "[^"]+"' android/app/build.gradle.kts | cut -d'"' -f2)
+          echo "APK_NAME=Clipper-$VERSION.apk" >> "$GITHUB_ENV"
           mkdir -p out
-          cp android/app/build/outputs/apk/release/app-release.apk out/Clipper-1.2.0.apk
+          cp android/app/build/outputs/apk/release/app-release.apk "out/Clipper-$VERSION.apk"
           APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          "$APKSIGNER" verify --print-certs "out/Clipper-1.2.0.apk"
+          "$APKSIGNER" verify --print-certs "out/Clipper-$VERSION.apk"
           AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | sort -V | tail -1)
-          "$AAPT" dump badging "out/Clipper-1.2.0.apk" | grep -E "package:|sdkVersion|application-label:" || true
+          "$AAPT" dump badging "out/Clipper-$VERSION.apk" | grep -E "package:|sdkVersion|application-label:" || true
           (cd out && sha256sum *.apk | tee SHA256SUMS.txt)
           rm -f "$RUNNER_TEMP/release.p12"
 
@@ -92,13 +94,18 @@ jobs:
           prerelease: true
           make_latest: false
           files: |
-            out/Clipper-1.2.0.apk
+            out/${{ env.APK_NAME }}
             out/SHA256SUMS.txt
           body: |
-            Clipper for Android (pre-release). Same v1.1.0 clipping + v1.2.0 Movie Recap, plus Auto-find so the app can pull videos by itself.
+            Clipper for Android (pre-release). This release must not be marked Latest.
 
-            Install `Clipper-1.2.0.apk` on a 64-bit phone (Samsung Galaxy A05 and similar). Open Settings to add optional API keys (they stay on the device). Clips land in the draft-only review queue; nothing posts unless Autopilot is on.
+            **1.2.1 fixes "I paste a URL and nothing happens".**
+            - Downloads now try several routes in order: YouTube's own app API from your phone, then public Piped servers, then Invidious servers (server lists refresh automatically).
+            - Accepts every common link: youtube.com/watch, m.youtube.com, youtu.be, /shorts/, /live/, music.youtube.com, links with ?si= and share text around them.
+            - A live status card under the button shows each step, a progress bar, and a clear error if something fails, with Show log / Copy log. The notification shows progress too, and a final "Clip ready" or error message.
+            - A failed download no longer crashes or closes the app.
 
-            This release is a prerelease and must not be marked Latest.
+            Install `${{ env.APK_NAME }}` on a 64-bit phone (Samsung Galaxy A05 and similar). If Android says "App not installed", uninstall the old Clipper first (this build is signed with a different key). Allow notifications when asked. Clips land in the draft-only review queue; nothing posts unless Autopilot is on.
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

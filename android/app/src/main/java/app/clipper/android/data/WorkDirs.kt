@@ -20,3 +20,10 @@ fun fontsDir(context: Context): Path {
     }
     return dest
 }
+
+private var statusSingleton: app.clipper.pipeline.JobStatus? = null
+
+/** One shared status file for the running job, read by the screen. */
+@Synchronized
+fun jobStatus(context: Context): app.clipper.pipeline.JobStatus =
+    statusSingleton ?: app.clipper.pipeline.JobStatus(workRoot(context).resolve("job-status.json")).also { statusSingleton = it }

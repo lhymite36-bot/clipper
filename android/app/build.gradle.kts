@@ -12,8 +12,8 @@ android {
         applicationId = "app.clipper.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 120
-        versionName = "1.2.0"
+        versionCode = 121
+        versionName = "1.2.1"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

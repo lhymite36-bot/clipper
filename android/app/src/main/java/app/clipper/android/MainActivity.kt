@@ -40,6 +40,14 @@ import app.clipper.pipeline.QueueStatus
 import app.clipper.pipeline.QueueStore
 import app.clipper.pipeline.SourceKind
 import app.clipper.pipeline.WatchSource
+import app.clipper.pipeline.YoutubeUrl
+import app.clipper.pipeline.JobStatus
+import app.clipper.android.data.jobStatus
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.core.app.NotificationManagerCompat
+import kotlinx.coroutines.delay
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -175,16 +183,27 @@ private fun ClipPanel(
         OutlinedTextField(url, onUrl, label = { Text("YouTube or video URL") }, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
-                if (url.isBlank()) {
-                    onStatus("Paste a URL or pick a file first.")
-                } else {
-                    ClipperJobService.startClip(ctx, url.trim(), url = url.trim())
-                    onStatus("Downloading and clipping in the background. If the download is blocked, pick the file instead.")
+                when (val parsed = YoutubeUrl.parse(url)) {
+                    is YoutubeUrl.Parsed.Invalid -> onStatus(parsed.reason)
+                    is YoutubeUrl.Parsed.OtherSite -> onStatus(
+                        "Clipper can download YouTube links only (${parsed.host} isn't supported). Save that video to your phone, then tap \"Pick a file\".",
+                    )
+                    else -> {
+                        val clean = when (parsed) {
+                            is YoutubeUrl.Parsed.YouTube -> parsed.canonicalUrl
+                            is YoutubeUrl.Parsed.DirectFile -> parsed.url
+                            else -> url.trim()
+                        }
+                        runCatching { ClipperJobService.startClip(ctx, clean, url = clean) }
+                            .onSuccess { onStatus("Started. Watch the progress below.") }
+                            .onFailure { onStatus(it.message ?: "Couldn't start the job.") }
+                    }
                 }
             }) { Text("Clip URL") }
             OutlinedButton(onClick = { picker.launch("video/*") }) { Text("Pick a file") }
         }
         Text(status, style = MaterialTheme.typography.bodySmall)
+        JobStatusCard()
     }
 }
 
@@ -224,15 +243,22 @@ private fun RecapPanel(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 if (title.isBlank()) onStatus("Add a movie title first.")
-                else if (url.isBlank()) onStatus("Paste a URL or pick a file.")
-                else {
-                    ClipperJobService.startRecap(ctx, url.trim(), title, url = url.trim(), long = long)
-                    onStatus("Recap started. Long recaps keep running as a foreground job.")
+                else when (val parsed = YoutubeUrl.parse(url)) {
+                    is YoutubeUrl.Parsed.Invalid -> onStatus(if (url.isBlank()) "Paste a URL or pick a file." else parsed.reason)
+                    is YoutubeUrl.Parsed.OtherSite -> onStatus("Only YouTube links download on the phone. Save the video, then tap \"Pick a file\".")
+                    else -> {
+                        val clean = (parsed as? YoutubeUrl.Parsed.YouTube)?.canonicalUrl
+                            ?: (parsed as? YoutubeUrl.Parsed.DirectFile)?.url ?: url.trim()
+                        runCatching { ClipperJobService.startRecap(ctx, clean, title, url = clean, long = long) }
+                            .onSuccess { onStatus("Recap started. Watch the progress below.") }
+                            .onFailure { onStatus(it.message ?: "Couldn't start the job.") }
+                    }
                 }
             }) { Text("Recap URL") }
             OutlinedButton(onClick = { picker.launch("video/*") }) { Text("Pick a file") }
         }
         Text(status, style = MaterialTheme.typography.bodySmall)
+        JobStatusCard()
     }
 }
 
@@ -432,4 +458,71 @@ private fun SecretField(label: String, value: String, onValue: (String) -> Unit,
         )
         Text(masked, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+/** Live status of the current/last job: step, progress bar, result or error, and the full log. */
+@Composable
+private fun JobStatusCard() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val status = remember { jobStatus(ctx) }
+    var snap by remember { mutableStateOf(status.read()) }
+    var showLog by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    LaunchedEffect(Unit) {
+        while (true) {
+            snap = status.read()
+            delay(700)
+        }
+    }
+    if (snap.state == JobStatus.State.IDLE) return
+    val killed = snap.state == JobStatus.State.RUNNING && !ClipperJobService.running.get() &&
+        System.currentTimeMillis() - snap.updatedAt > 30_000
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val heading = when {
+                killed -> "Stopped"
+                snap.state == JobStatus.State.RUNNING -> "Working…"
+                snap.state == JobStatus.State.DONE -> "Done ✅"
+                else -> "Failed ❌"
+            }
+            Text(heading, style = MaterialTheme.typography.titleMedium)
+            when {
+                killed -> Text(
+                    "The phone stopped the job before it finished (often battery saver). Open Clipper, keep the screen on, and try again.",
+                    color = MaterialTheme.colorScheme.error,
+                )
+                snap.state == JobStatus.State.RUNNING -> {
+                    Text(snap.step + (snap.percent?.let { " — $it%" } ?: "…"))
+                    val p = snap.percent
+                    if (p != null) LinearProgressIndicator(progress = { p / 100f }, modifier = Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                snap.state == JobStatus.State.FAILED -> Text(snap.message, color = MaterialTheme.colorScheme.error)
+                else -> Text(snap.message)
+            }
+            if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled()) {
+                Text(
+                    "Tip: notifications are off for Clipper, so progress only shows here. Turn them on in Settings > Apps > Clipper > Notifications.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { showLog = !showLog }) { Text(if (showLog) "Hide log" else "Show log") }
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString("Clipper ${BuildConfigInfo.VERSION}\n" + snap.log.joinToString("\n")))
+                }) { Text("Copy log") }
+            }
+            if (showLog || snap.state == JobStatus.State.FAILED) {
+                Text(
+                    snap.log.takeLast(25).joinToString("\n"),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+    }
+}
+
+private object BuildConfigInfo {
+    const val VERSION = "1.2.1"
 }

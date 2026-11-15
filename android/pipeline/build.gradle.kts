@@ -19,6 +19,8 @@ dependencies {
 }
 tasks.test {
     useJUnitPlatform()
+    testLogging { showStandardStreams = System.getenv("LIVE_FETCH") == "1" }
+    if (System.getenv("LIVE_FETCH") == "1") outputs.upToDateWhen { false }
 }
 tasks.register<JavaExec>("runSample") {
     group = "application"

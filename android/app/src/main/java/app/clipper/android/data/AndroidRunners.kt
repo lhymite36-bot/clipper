@@ -3,6 +3,10 @@ package app.clipper.android.data
 import android.content.Context
 import app.clipper.pipeline.CommandResult
 import app.clipper.pipeline.CommandRunner
+import app.clipper.pipeline.FetchResult
+import app.clipper.pipeline.UrlConnectionHttp
+import app.clipper.pipeline.VideoFetcher
+import app.clipper.pipeline.YoutubeUrl
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFprobeKit
 import org.json.JSONObject
@@ -38,27 +42,39 @@ class FfmpegKitRunner : CommandRunner {
  */
 class YoutubeDlRunner(@Suppress("UNUSED_PARAMETER") context: Context) {
     private val piped = listOf(
-        "https://pipedapi.kavin.rocks",
-        "https://pipedapi.adminforge.de",
         "https://api.piped.private.coffee",
-    )
-    private val invidious = listOf(
-        "https://inv.nadeko.net",
-        "https://yewtu.be",
-        "https://invidious.fdn.fr",
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.ducks.party",
+        "https://pipedapi.adminforge.de",
     )
 
-    fun download(url: String, destDir: Path): Path {
-        destDir.toFile().mkdirs()
-        val id = videoId(url) ?: error("Need a YouTube watch URL, or pick the file instead.")
-        val stream = streamUrl(id) ?: error("Could not get a download URL. Share or pick the video file instead.")
-        val dest = destDir.resolve("$id.mp4")
-        httpDownload(stream, dest.toFile())
-        if (!dest.toFile().exists() || dest.toFile().length() < 1000) {
-            error("Download was empty. Try picking the file instead.")
-        }
-        return dest
-    }
+    /**
+     * Download a pasted/shared link with every fallback route (YouTube app API,
+     * Piped, Invidious). Progress and each attempt are reported; failures throw
+     * [app.clipper.pipeline.FetchFailed] with a plain-English message.
+     */
+    fun fetch(
+        input: String,
+        destDir: Path,
+        log: (String) -> Unit = {},
+        progress: (Int?) -> Unit = {},
+    ): FetchResult = VideoFetcher(
+        http = UrlConnectionHttp(),
+        cacheDir = destDir.parent?.resolve("cache"),
+        muxer = { v, a, out ->
+            val s = FFmpegKit.executeWithArguments(
+                arrayOf(
+                    "-y", "-loglevel", "error", "-i", v.toString(), "-i", a.toString(),
+                    "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", "-movflags", "+faststart", out.toString(),
+                ),
+            )
+            if (!s.returnCode.isValueSuccess) error("merge failed: ${s.failStackTrace ?: s.output?.takeLast(200) ?: "ffmpeg error"}")
+        },
+        log = log,
+        progress = progress,
+    ).fetch(input, destDir)
+
+    fun download(url: String, destDir: Path): Path = fetch(url, destDir).path
 
     fun dumpJson(query: String, extra: List<String> = emptyList()): String {
         val ccOnly = extra.any { it.contains("Creative Commons", true) }
@@ -153,68 +169,12 @@ class YoutubeDlRunner(@Suppress("UNUSED_PARAMETER") context: Context) {
             .toString()
     }
 
-    private fun streamUrl(id: String): String? {
-        for (base in piped) {
-            val body = getOrNull("$base/streams/$id") ?: continue
-            val o = runCatching { JSONObject(body) }.getOrNull() ?: continue
-            val muxed = o.optJSONArray("videoStreams") ?: o.optJSONArray("adaptiveStreams")
-            // Prefer a progressive muxed stream if present
-            val progressive = o.optJSONArray("videoStreams")
-            var best: String? = null
-            var bestScore = -1
-            if (progressive != null) {
-                for (i in 0 until progressive.length()) {
-                    val s = progressive.getJSONObject(i)
-                    if (s.optString("videoOnly", "false") == "true" || s.optBoolean("videoOnly")) continue
-                    val q = s.optInt("height", s.optString("quality").filter { it.isDigit() }.toIntOrNull() ?: 0)
-                    val url = s.optString("url")
-                    if (url.isNotBlank() && q >= bestScore) {
-                        bestScore = q
-                        best = url
-                    }
-                }
-            }
-            if (best != null) return best
-            val fmt = o.optString("hls")
-            if (fmt.isNotBlank()) return fmt
-        }
-        for (base in invidious) {
-            val body = getOrNull("$base/api/v1/videos/$id") ?: continue
-            val o = runCatching { JSONObject(body) }.getOrNull() ?: continue
-            val fmts = o.optJSONArray("formatStreams") ?: continue
-            var best: String? = null
-            var bestScore = -1
-            for (i in 0 until fmts.length()) {
-                val s = fmts.getJSONObject(i)
-                val q = s.optString("resolution").filter { it.isDigit() }.toIntOrNull() ?: 0
-                val url = s.optString("url")
-                if (url.isNotBlank() && q >= bestScore) {
-                    bestScore = q
-                    best = url
-                }
-            }
-            if (best != null) return best
-        }
-        return null
-    }
-
-    private fun httpDownload(url: String, dest: java.io.File) {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            instanceFollowRedirects = true
-            connectTimeout = 20_000
-            readTimeout = 300_000
-            setRequestProperty("User-Agent", "Clipper/1.2.0")
-        }
-        conn.inputStream.use { inp -> FileOutputStream(dest).use { inp.copyTo(it) } }
-        conn.disconnect()
-    }
-
     private fun getOrNull(url: String): String? = runCatching {
         val conn = (URL(url).openConnection() as HttpsURLConnection).apply {
             instanceFollowRedirects = true
             connectTimeout = 12_000
             readTimeout = 20_000
-            setRequestProperty("User-Agent", "Clipper/1.2.0")
+            setRequestProperty("User-Agent", "Clipper/1.2.1")
             setRequestProperty("Accept", "application/json, application/atom+xml, text/xml, */*")
         }
         val code = conn.responseCode
@@ -224,8 +184,7 @@ class YoutubeDlRunner(@Suppress("UNUSED_PARAMETER") context: Context) {
         if (code in 200..299) text else null
     }.getOrNull()
 
-    private fun videoId(url: String): String? =
-        Regex("(?:v=|/shorts/|youtu\\.be/)([A-Za-z0-9_-]{11})").find(url)?.groupValues?.get(1)
+    private fun videoId(url: String): String? = YoutubeUrl.videoId(url)
 
     private fun channelId(url: String): String? {
         Regex("channel/(UC[A-Za-z0-9_-]{20,})").find(url)?.groupValues?.get(1)?.let { return it }
