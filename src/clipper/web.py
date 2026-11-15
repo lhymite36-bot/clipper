@@ -115,7 +115,15 @@ def create_app():
             ffmpeg = False
         from clipper.config import public_settings
 
-        return {"ok": True, "version": __version__, "ffmpeg": ffmpeg, "settings": public_settings()}
+        from clipper import ytdlp_runtime
+
+        return {
+            "ok": True,
+            "version": __version__,
+            "ffmpeg": ffmpeg,
+            "downloader": ytdlp_runtime.status(),
+            "settings": public_settings(),
+        }
 
     @app.post("/api/jobs")
     async def start_job(
@@ -145,6 +153,16 @@ def create_app():
         out_dir.mkdir(parents=True, exist_ok=True)
 
         source = (url or "").strip()
+        if source and not (file and file.filename):
+            from clipper.download import is_url
+            from clipper.ytdlp_runtime import normalize_source
+
+            try:
+                source = normalize_source(source)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            if not is_url(source) and not Path(source).is_file():
+                raise HTTPException(400, f"Couldn't find that file or link: {source}")
         if file and file.filename:
             dest = out_dir / "_work"
             dest.mkdir(parents=True, exist_ok=True)
@@ -417,5 +435,8 @@ def serve(host: str = "127.0.0.1", port: int = 8766) -> int:
             pass
 
     threading.Thread(target=_open, daemon=True).start()
+    from clipper import ytdlp_runtime
+
+    ytdlp_runtime.start_background_update()
     uvicorn.run(create_app(), host=host, port=port, log_level="info")
     return 0

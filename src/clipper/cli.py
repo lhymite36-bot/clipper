@@ -177,6 +177,13 @@ def selftest() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        from clipper import ytdlp_runtime
+
+        if "--selftest" not in (argv if argv is not None else __import__("sys").argv):
+            ytdlp_runtime.start_background_update()
+    except Exception:  # noqa: BLE001
+        pass
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] in {"recap", "recapper"}:
         from clipper.recap import main as recap_main

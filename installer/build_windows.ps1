@@ -3,7 +3,19 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 
 python -m pip install -U pip
 pip install -e ".[dev]"
+# Newest yt-dlp with its YouTube challenge-solver scripts (yt-dlp-ejs)
+pip install -U "yt-dlp[default]"
 pip install pyinstaller
+python -c "import yt_dlp, yt_dlp_ejs; print('Bundling yt-dlp', yt_dlp.version.__version__)"
+
+# QuickJS-NG: small JavaScript runtime yt-dlp needs for YouTube (pinned + checksum)
+$qjs = "dist/qjs-bin/qjs.exe"
+New-Item -ItemType Directory -Force -Path "dist/qjs-bin" | Out-Null
+if (-not (Test-Path $qjs)) {
+  Invoke-WebRequest -Uri "https://github.com/quickjs-ng/quickjs/releases/download/v0.18.0/qjs-windows-x86_64.exe" -OutFile $qjs
+}
+$qjsHash = (Get-FileHash -Algorithm SHA256 $qjs).Hash.ToLower()
+if ($qjsHash -ne "ff03398d74ea6e6bd3a8e58058f7003225abcac229d7d57775b7aaae812a49c7") { throw "qjs.exe checksum mismatch" }
 
 # Bundle a Windows FFmpeg build (essentials, already unzipped to dist/ffmpeg-bin)
 $ffDir = "dist/ffmpeg-bin"
@@ -28,6 +40,7 @@ $common = @(
   "--collect-all", "onnxruntime",
   "--collect-all", "av",
   "--collect-all", "yt_dlp",
+  "--collect-all", "yt_dlp_ejs",
   "--collect-all", "cv2",
   "--hidden-import=uvicorn.logging",
   "--hidden-import=uvicorn.loops",
@@ -84,6 +97,9 @@ Get-ChildItem "dist/clipper_cli_build/clipper" -Directory | ForEach-Object {
 # Bundle ffmpeg / ffprobe next to the exes
 Copy-Item -Force "$ffDir/ffmpeg.exe" "$app/ffmpeg.exe"
 if (Test-Path "$ffDir/ffprobe.exe") { Copy-Item -Force "$ffDir/ffprobe.exe" "$app/ffprobe.exe" }
+
+# Bundle QuickJS for yt-dlp's YouTube challenge solver
+Copy-Item -Force $qjs "$app/qjs.exe"
 
 # Smoke test frozen CLI (no model download)
 & "$app/clipper.exe" --selftest

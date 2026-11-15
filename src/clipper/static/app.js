@@ -265,3 +265,20 @@ async function loadQueue() {
 
 loadSettings().catch(() => {});
 loadQueue().catch(() => {});
+
+// Show which yt-dlp is in use and whether the launch-time update worked.
+async function refreshDownloaderStatus() {
+  const el = document.getElementById("dl-status");
+  if (!el) return;
+  try {
+    const res = await fetch("/api/health");
+    const body = await res.json();
+    const d = body.downloader || {};
+    const v = d.version ? `yt-dlp ${d.version}` : "yt-dlp (built-in)";
+    el.textContent = `App ${body.version} · Downloader: ${v}${d.message ? " — " + d.message : ""}`;
+    if (d.state === "checking") setTimeout(refreshDownloaderStatus, 3000);
+  } catch (_) {
+    el.textContent = "";
+  }
+}
+refreshDownloaderStatus();

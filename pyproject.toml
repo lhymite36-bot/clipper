@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clipper"
-version = "1.2.0"
+version = "1.2.1"
 description = "Free local tool that turns long videos into captioned YouTube Shorts"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ authors = [{ name = "Pedro" }]
 license = "MIT"
 dependencies = [
   "faster-whisper>=1.0.0",
-  "yt-dlp>=2024.8.0",
+  "yt-dlp[default]>=2026.10.26",
   "numpy>=1.26",
   "opencv-python-headless>=4.8.0",
   "fastapi>=0.115.0",

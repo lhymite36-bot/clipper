@@ -20,8 +20,9 @@
 
     <form id="form" class="card tab-panel" data-panel="clips">
       <label>YouTube or video URL
-        <input type="url" id="url" name="url" placeholder="https://www.youtube.com/watch?v=…" />
+        <input type="text" inputmode="url" autocomplete="off" id="url" name="url" placeholder="https://www.youtube.com/watch?v=… or youtu.be/… or /shorts/…" />
       </label>
+      <div class="hint" id="dl-status">Checking the YouTube downloader…</div>
       <label>Or a local file
         <input type="file" id="file" name="file" accept="video/*,.mp4,.mkv,.webm,.mov" />
       </label>
@@ -125,7 +126,7 @@
         <input type="text" id="recap-title" name="title" maxlength="120" placeholder="Sintel" required />
       </label>
       <label>YouTube or video URL (optional if you upload a file, or leave both empty for illustrated stills)
-        <input type="url" id="recap-url" name="url" placeholder="https://…" />
+        <input type="text" inputmode="url" autocomplete="off" id="recap-url" name="url" placeholder="https://…" />
       </label>
       <label>Or a local movie / trailer file
         <input type="file" id="recap-file" name="file" accept="video/*,.mp4,.mkv,.webm,.mov" />

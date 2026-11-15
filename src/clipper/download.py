@@ -25,6 +25,12 @@ def download(source: str, workdir: Path, progress=None) -> tuple[Path, dict]:
     """Return (local_video_path, info_dict)."""
     workdir.mkdir(parents=True, exist_ok=True)
     log = progress or (lambda *_a, **_k: None)
+    from clipper import ytdlp_runtime
+
+    try:
+        source = ytdlp_runtime.normalize_source(source)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
     if not is_url(source):
         path = Path(source).expanduser().resolve()
@@ -38,10 +44,14 @@ def download(source: str, workdir: Path, progress=None) -> tuple[Path, dict]:
         }
         return path, info
 
+    from clipper import ytdlp_runtime
+
+    ytdlp_runtime.activate(log)
     try:
         import yt_dlp
     except ImportError as exc:
-        raise RuntimeError("yt-dlp is not installed. Run: pip install yt-dlp") from exc
+        raise RuntimeError("The YouTube downloader (yt-dlp) is missing. Reinstall Clipper.") from exc
+    log(f"Downloader: yt-dlp {yt_dlp.version.__version__}")
 
     outtmpl = str(workdir / "source.%(ext)s")
     ffmpeg = None
@@ -52,10 +62,16 @@ def download(source: str, workdir: Path, progress=None) -> tuple[Path, dict]:
 
     info: dict = {}
 
+    last = {"pct": -10}
+
     def hook(d):
         if d.get("status") == "downloading":
-            frac = d.get("_percent_str") or ""
-            log(f"Downloading {frac}".strip())
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            done = d.get("downloaded_bytes") or 0
+            pct = int(done * 100 / total) if total else None
+            if pct is None or pct - last["pct"] >= 10:
+                last["pct"] = pct if pct is not None else last["pct"]
+                log(f"Downloading… {pct}%" if pct is not None else "Downloading…")
         elif d.get("status") == "finished":
             log("Download finished, merging if needed…")
 
@@ -69,16 +85,24 @@ def download(source: str, workdir: Path, progress=None) -> tuple[Path, dict]:
         "progress_hooks": [hook],
         "noplaylist": True,
         "overwrites": True,
+        "js_runtimes": ytdlp_runtime.js_runtime_opts(),
+        "remote_components": ["ejs:github"],
+        "retries": 5,
+        "fragment_retries": 5,
+        "socket_timeout": 30,
     }
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
 
-    log("Downloading video…")
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(source, download=True)
-        if info and "entries" in info and info["entries"]:
-            info = info["entries"][0]
-        prepared = ydl.prepare_filename(info)
+    log(f"Downloading video from {source} …")
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(source, download=True)
+            if info and "entries" in info and info["entries"]:
+                info = info["entries"][0]
+            prepared = ydl.prepare_filename(info)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(ytdlp_runtime.friendly_error(exc)) from exc
     path = Path(prepared)
     if not path.is_file():
         # merge may have changed extension to mp4
